@@ -240,9 +240,9 @@ class SQLiteLedger:
                 if old and old != (close_id,quantity):
                     raise SafetyError("late close execution mismatch")
                 db.execute("INSERT OR IGNORE INTO late_close_fills VALUES (?,?,?)", (execution_id,close_id,quantity))
-                logic = db.execute("SELECT logic_id FROM runs WHERE run_id=?", (row[0],)).fetchone()[0]
-                db.execute("UPDATE runs SET enabled=0 WHERE logic_id=?", (logic,))
-                db.execute("INSERT INTO stop_reasons(run_id,reason,active) SELECT run_id,'LATE_CLOSE_REVIEW',1 FROM runs WHERE logic_id=? ON CONFLICT(run_id,reason) DO UPDATE SET active=1", (logic,))
+                logic, mode = db.execute("SELECT logic_id,mode FROM runs WHERE run_id=?", (row[0],)).fetchone()
+                db.execute("UPDATE runs SET enabled=0 WHERE logic_id=? AND mode=?", (logic,mode))
+                db.execute("INSERT INTO stop_reasons(run_id,reason,active) SELECT run_id,'LATE_CLOSE_REVIEW',1 FROM runs WHERE logic_id=? AND mode=? ON CONFLICT(run_id,reason) DO UPDATE SET active=1", (logic,mode))
                 db.commit()
                 return False
             db.commit()
@@ -303,9 +303,9 @@ class SQLiteLedger:
                 if old and old != (decision_id,quantity):
                     raise SafetyError("late execution ID mismatch")
                 db.execute("INSERT OR IGNORE INTO late_entry_fills VALUES (?,?,?)", (execution_id,decision_id,quantity))
-                logic = db.execute("SELECT logic_id FROM runs WHERE run_id=?", (row[0],)).fetchone()[0]
-                db.execute("UPDATE runs SET enabled=0 WHERE logic_id=?", (logic,))
-                db.execute("INSERT INTO stop_reasons(run_id,reason,active) SELECT run_id,'LATE_FILL_REVIEW',1 FROM runs WHERE logic_id=? ON CONFLICT(run_id,reason) DO UPDATE SET active=1", (logic,))
+                logic, mode = db.execute("SELECT logic_id,mode FROM runs WHERE run_id=?", (row[0],)).fetchone()
+                db.execute("UPDATE runs SET enabled=0 WHERE logic_id=? AND mode=?", (logic,mode))
+                db.execute("INSERT INTO stop_reasons(run_id,reason,active) SELECT run_id,'LATE_FILL_REVIEW',1 FROM runs WHERE logic_id=? AND mode=? ON CONFLICT(run_id,reason) DO UPDATE SET active=1", (logic,mode))
                 db.commit()
                 return False
             db.commit()
@@ -371,7 +371,7 @@ class SQLiteLedger:
         """Shared predicate; caller must hold dispatch gate and write transaction."""
         if not db.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone():
             raise SafetyError("unknown run")
-        scope = "SELECT run_id FROM runs WHERE logic_id=(SELECT logic_id FROM runs WHERE run_id=?)"
+        scope = "SELECT run_id FROM runs WHERE (logic_id,mode)=(SELECT logic_id,mode FROM runs WHERE run_id=?)"
         for table in ("orders", "closes"):
             if db.execute(f"SELECT 1 FROM {table} WHERE run_id IN ({scope}) AND state IN ('SUBMITTING','UNKNOWN','CANCEL_PENDING')", (run_id,)).fetchone():
                 raise SafetyError("unresolved orders prevent resume")
@@ -396,7 +396,12 @@ class SQLiteLedger:
         with self.dispatch_gate(), self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             self._check_resume_risks(db, run_id)
-            if db.execute("SELECT 1 FROM sqlite_master WHERE name='worker_review_generation'").fetchone():
+            has_modes = db.execute("SELECT 1 FROM sqlite_master WHERE name='worker_review_generations'").fetchone()
+            if has_modes:
+                needs_review = db.execute("SELECT 1 FROM worker_review_generations WHERE mode=(SELECT mode FROM runs WHERE run_id=?)", (run_id,)).fetchone()
+            else:
+                needs_review = db.execute("SELECT 1 FROM sqlite_master WHERE name='worker_review_generation'").fetchone()
+            if needs_review:
                 raise SafetyError("worker review token required after startup")
             db.execute("CREATE TABLE IF NOT EXISTS resume_approvals (id INTEGER PRIMARY KEY, run_id TEXT, actor TEXT, reason TEXT, approved_at TEXT DEFAULT CURRENT_TIMESTAMP)")
             db.execute("INSERT INTO resume_approvals(run_id, actor, reason) VALUES (?, ?, ?)", (run_id, actor, reason))
@@ -469,19 +474,27 @@ class SQLiteLedger:
             self._cancel_entries(db, "run_id=?", (run_id,), reason)
             db.commit()
 
-    def startup_scan(self) -> list[tuple[str, str, str]]:
-        """Explicit worker-start gate; never infer whether SUBMITTING was sent."""
+    def startup_scan(self, mode: Mode | None = None) -> list[tuple[str, str, str]]:
+        """A mode-specific worker stops/reviews only its mode; None starts all."""
+        modes = (Mode(mode).value,) if mode is not None else (Mode.DEMO.value, Mode.LIVE.value)
         found = []
         with self.dispatch_gate(), self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("CREATE TABLE IF NOT EXISTS worker_review_generation (id INTEGER PRIMARY KEY CHECK(id=1), generation INTEGER NOT NULL)")
-            db.execute("INSERT INTO worker_review_generation VALUES (1,1) ON CONFLICT(id) DO UPDATE SET generation=generation+1")
-            for table, key in (("orders", "decision_id"), ("closes", "close_id")):
-                found.extend((table, row[0], row[1]) for row in db.execute(f"SELECT {key}, run_id FROM {table} WHERE state IN ('SUBMITTING', 'UNKNOWN')"))
-            # Every persisted run requires review on worker start, including apparently clean ones.
-            for (run_id,) in db.execute("SELECT run_id FROM runs").fetchall():
-                db.execute("UPDATE runs SET enabled=0 WHERE run_id=?", (run_id,))
-                db.execute("INSERT INTO stop_reasons VALUES (?, 'STARTUP_REVIEW', 1) ON CONFLICT(run_id, reason) DO UPDATE SET active=1", (run_id,))
+            db.execute("CREATE TABLE IF NOT EXISTS worker_review_generations (mode TEXT PRIMARY KEY, generation INTEGER NOT NULL)")
+            # A legacy global startup applied to both modes. Preserve its
+            # review requirement while migrating to independent generations.
+            if db.execute("SELECT 1 FROM sqlite_master WHERE name='worker_review_generation'").fetchone():
+                prior = db.execute("SELECT generation FROM worker_review_generation WHERE id=1").fetchone()
+                if prior:
+                    for legacy_mode in (Mode.DEMO.value, Mode.LIVE.value):
+                        db.execute("INSERT OR IGNORE INTO worker_review_generations VALUES (?,?)", (legacy_mode,prior[0]))
+            for selected in modes:
+                db.execute("INSERT INTO worker_review_generations VALUES (?,1) ON CONFLICT(mode) DO UPDATE SET generation=generation+1", (selected,))
+                for table, key in (("orders", "decision_id"), ("closes", "close_id")):
+                    found.extend((table, row[0], row[1]) for row in db.execute(f"SELECT {key},run_id FROM {table} WHERE run_id IN (SELECT run_id FROM runs WHERE mode=?) AND state IN ('SUBMITTING','UNKNOWN')", (selected,)))
+                for (run_id,) in db.execute("SELECT run_id FROM runs WHERE mode=?", (selected,)).fetchall():
+                    db.execute("UPDATE runs SET enabled=0 WHERE run_id=?", (run_id,))
+                    db.execute("INSERT INTO stop_reasons VALUES (?, 'STARTUP_REVIEW', 1) ON CONFLICT(run_id, reason) DO UPDATE SET active=1", (run_id,))
             db.commit()
         return found
 
@@ -730,10 +743,10 @@ class SQLiteLedger:
                 raise SafetyError("unknown run")
             logic_id, mode, cap, enabled = run
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='late_close_fills'").fetchone():
-                if db.execute("SELECT 1 FROM late_close_fills f JOIN closes c ON c.close_id=f.close_id JOIN runs r ON r.run_id=c.run_id WHERE r.logic_id=?", (logic_id,)).fetchone():
+                if db.execute("SELECT 1 FROM late_close_fills f JOIN closes c ON c.close_id=f.close_id JOIN runs r ON r.run_id=c.run_id WHERE r.logic_id=? AND r.mode=?", (logic_id,mode)).fetchone():
                     raise SafetyError("late close fill requires reconciliation")
             if db.execute("SELECT 1 FROM sqlite_master WHERE name='late_entry_fills'").fetchone():
-                if db.execute("SELECT 1 FROM late_entry_fills f JOIN orders o ON o.decision_id=f.decision_id WHERE o.logic_id=?", (logic_id,)).fetchone():
+                if db.execute("SELECT 1 FROM late_entry_fills f JOIN orders o ON o.decision_id=f.decision_id JOIN runs r ON r.run_id=o.run_id WHERE r.logic_id=? AND r.mode=?", (logic_id,mode)).fetchone():
                     raise SafetyError("late fill requires reconciliation")
             if db.execute("SELECT 1 FROM closes WHERE run_id=? AND state='UNKNOWN'", (intent.run_id,)).fetchone():
                 raise SafetyError("run has UNKNOWN close")

@@ -4,13 +4,15 @@ import json
 
 from .durable import DurableEngine, SQLiteLedger
 from .engine import SafetyError
+from .models import Mode
 
 
 class MockWorker:
-    def __init__(self, ledger: SQLiteLedger, broker):
+    def __init__(self, ledger: SQLiteLedger, broker, *, mode: Mode | None = None):
+        self.mode = Mode(mode) if mode is not None else None
         self.ledger = ledger
         self.engine = DurableEngine(ledger, broker)
-        self.startup_findings = ledger.startup_scan()
+        self.startup_findings = ledger.startup_scan(self.mode)
 
     @staticmethod
     def _snapshot(db, run_id):
@@ -18,7 +20,7 @@ class MockWorker:
         # one read transaction, including lazily created quarantine tables.
         payload = {"requested_run": run_id}
         scopes = {
-            "run_id": "SELECT run_id FROM runs WHERE logic_id=(SELECT logic_id FROM runs WHERE run_id=?)",
+            "run_id": "SELECT run_id FROM runs WHERE (logic_id,mode)=(SELECT logic_id,mode FROM runs WHERE run_id=?)",
             "decision_id": "SELECT decision_id FROM orders WHERE run_id IN ({runs})",
             "close_id": "SELECT close_id FROM closes WHERE run_id IN ({runs})",
             "position_id": "SELECT position_id FROM positions WHERE run_id IN ({runs})",
@@ -44,11 +46,19 @@ class MockWorker:
         for table in ("logic_limits", "limit_changes"):
             payload[table] = sorted(db.execute(
                 f"SELECT * FROM {table} WHERE logic_id=(SELECT logic_id FROM runs WHERE run_id=?)", (run_id,)
-            ).fetchall(), key=repr)
-        payload["startup_generation"] = db.execute("SELECT * FROM worker_review_generation ORDER BY id").fetchall() if "worker_review_generation" in existing else []
+            ).fetchall(), key=repr) if db.execute("SELECT mode FROM runs WHERE run_id=?", (run_id,)).fetchone() == (Mode.LIVE.value,) else []
+        if "worker_review_generations" in existing:
+            payload["startup_generation"] = db.execute("SELECT * FROM worker_review_generations WHERE mode=(SELECT mode FROM runs WHERE run_id=?)", (run_id,)).fetchall()
+        else:
+            payload["startup_generation"] = db.execute("SELECT * FROM worker_review_generation ORDER BY id").fetchall() if "worker_review_generation" in existing else []
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
+    def _require_mode(self, run_id):
+        if self.mode is not None and self.ledger.run_mode(run_id) != self.mode:
+            raise SafetyError("worker mode mismatch")
+
     def review_token(self, run_id):
+        self._require_mode(run_id)
         with self.ledger._connect() as db:
             db.execute("BEGIN")
             token = self._snapshot(db, run_id)
@@ -56,6 +66,7 @@ class MockWorker:
             return token
 
     def approve_resume(self, run_id, actor, reason, reviewed_token):
+        self._require_mode(run_id)
         if not actor.strip() or not reason.strip():
             raise SafetyError("actor and reason required")
         with self.ledger.dispatch_gate(), self.ledger._connect() as db:
@@ -70,4 +81,5 @@ class MockWorker:
             db.commit()
 
     def submit(self, intent):
+        self._require_mode(intent.run_id)
         return self.engine.submit_intent(intent)

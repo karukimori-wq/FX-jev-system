@@ -246,3 +246,19 @@ all startup stop reasons were manually cleared. Pre-worker clean mock workflows
 remain supported. This retains the conservative all-mode review scope.
 
 Validation: 75 tests pass; full evidence is in evidence/tests-v0.27.txt.
+
+## v0.28.0: mode-scoped quarantine and resume
+
+Late entry/close fills stop only runs with the same logic and mode. Reservation
+quarantine checks and resume risks use the same scope. Review snapshots exclude
+the other mode and exclude live cap history from demo review.
+
+`MockWorker(..., mode=Mode.LIVE)` or `Mode.DEMO` starts/reviews only that mode and
+refuses cross-mode use. Omitting mode deliberately starts both modes for backward
+compatibility. Startup generations are per mode; legacy global startup evidence
+is conservatively migrated to both modes. Existing live multi-run caps remain.
+
+83 mock tests pass. The v0.27 isolation diagnostic now reports false for demo
+quarantine blocking live; expired-run acceptance remains true (not addressed).
+Global ID keys, shared local DB/dispatch lock, P&L and real broker infrastructure
+remain outside complete demo/live isolation. Issue #1 stays open.
