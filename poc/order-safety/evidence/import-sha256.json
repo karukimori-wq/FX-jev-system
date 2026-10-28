@@ -1,0 +1,13 @@
+{
+  "pyproject.toml": "d3721b2c2d19d8702424d1eb2145ad97a85d90a9727e04eb77c60919d4e89075",
+  "README.md": "8fa5fab8e203c6da7bed43587e536ea689e6f41644ac1eefc410aca809606648",
+  "src/fx_poc/durable.py": "05f69b1fd16cbba6d97563dd9028f2225f7947df8f2d62780815434f95b2026f",
+  "src/fx_poc/models.py": "376f497c0a2eec0d77b8ae944d4746edb9a180f0ae4991463b5fa6441616531a",
+  "src/fx_poc/worker.py": "c9c2a7dd3b1ee631e2aad6db63bfc8900209e202ea4ed18155882e493728b66f",
+  "src/fx_poc/engine.py": "ea45ad563df8ed746f0467070063f0760595b43d05fe25288acc88dd74c31e39",
+  "src/fx_poc/__init__.py": "0602f6f2234c40e57628b86ec9ec1d548b75c4ed95baa308525e28071b83e6b4",
+  "tests/test_durable.py": "96e22ad77e13dc590b9cd96f860d6c9abbd1bf4fb4cff6f56a1604b886059b2b",
+  "tests/test_acceptance.py": "5adc624ded772ff82f5e4b050a527dd6c065e642dbc517dd94721603b1d34a27",
+  "tests/test_logic_limits.py": "e7957b7370925067dbbcfd27e9b6e2ec4cdcf67f758efa64107d12edfb1f0ce5",
+  "tests/test_dispatch.py": "a6cc7f6d18c34c0b94d6d12991c28cabd0ad2577928d74236bcb41d18b965906"
+}
