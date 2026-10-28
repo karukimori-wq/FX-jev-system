@@ -1,0 +1,42 @@
+"""Run-bound namespace boundary for new callers; legacy APIs remain available."""
+from .identifiers import scoped_id
+from .models import Intent
+from .engine import SafetyError
+
+
+class RunLedger:
+    def __init__(self, ledger, run_id):
+        self.ledger = ledger
+        self.run_id = run_id
+        self.mode = ledger.run_mode(run_id)
+
+    def identifier(self, kind, source):
+        return scoped_id(self.mode, self.run_id, kind, source)
+
+    def reserve(self, decision, pair, side, quantity):
+        return self.ledger.reserve(Intent(self.identifier('decision',decision),self.run_id,pair,side,quantity))
+
+    def _owned(self, table, key, identifier):
+        with self.ledger._connect() as db:
+            row = db.execute(f'SELECT run_id FROM {table} WHERE {key}=?',(identifier,)).fetchone()
+        if row != (self.run_id,):
+            raise SafetyError('unknown or foreign owned record')
+
+    def ingest_entry_fill(self, decision, execution, quantity):
+        order = self.identifier('decision',decision)
+        self._owned('orders','decision_id',order)
+        return self.ledger.ingest_entry_fill(order,self.identifier('execution',execution),quantity)
+
+    def filled_position(self, execution):
+        position = 'fill-' + self.identifier('execution',execution)
+        self._owned('positions','position_id',position)
+        return position
+
+    def reserve_close(self, close, position_id, quantity):
+        self._owned('positions','position_id',position_id)
+        return self.ledger.reserve_close(self.identifier('close',close),self.run_id,position_id,quantity)
+
+    def ingest_close_fill(self, close, execution, quantity):
+        close_id = self.identifier('close',close)
+        self._owned('closes','close_id',close_id)
+        return self.ledger.ingest_close_fill(close_id,self.identifier('execution',execution),quantity)
