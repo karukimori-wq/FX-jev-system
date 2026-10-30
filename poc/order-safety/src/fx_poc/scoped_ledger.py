@@ -42,6 +42,19 @@ class RunLedger:
         return self.ledger.ingest_close_fill(close_id,self.identifier('execution',execution),quantity)
 
 
+    def reconcile_terminal_entry(self, decision, candidates):
+        order = self.identifier('decision', decision)
+        self._owned('orders', 'decision_id', order)
+        # Evidence must already contain internal IDs; never rewrite a foreign
+        # candidate into evidence for this run.
+        return self.ledger.reconcile_terminal_entry(order, candidates)
+
+    def reconcile_terminal_close(self, close, candidates):
+        close_id = self.identifier('close', close)
+        self._owned('closes', 'close_id', close_id)
+        return self.ledger.reconcile_terminal_close(close_id, candidates)
+
+
 class RunEngine:
     """Run-bound submission path using the durable engines' existing gates."""
     def __init__(self, ledger, broker, run_id):

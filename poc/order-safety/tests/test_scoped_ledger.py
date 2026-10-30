@@ -101,3 +101,28 @@ class ScopedLedgerTests(unittest.TestCase):
             self.assertEqual(0,RunEngine(SQLiteLedger(path),broker,'a').process_cancellations())
             self.assertEqual(1,broker.calls);self.assertEqual(10,ledger.live_exposure('L'))
             self.assertEqual('UNKNOWN',ledger.pending_cancels()[0][2])
+
+    def test_scoped_terminal_evidence_keeps_foreign_ids_and_releases_only_owner(self):
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            for run in ('a','b'):ledger.add_run(Run(run,'L',Mode.LIVE,100))
+            a,b=RunLedger(ledger,'a'),RunLedger(ledger,'b')
+            for scope in (a,b):scope.reserve('d','USD_JPY',Side.BUY,10)
+            evidence=dict(decision_id=a.identifier('decision','d'),run_id='a',quantity=10,filled=0,state='CANCELED',external_id='ea')
+            original=dict(evidence)
+            self.assertFalse(b.reconcile_terminal_entry('d',[evidence]))
+            self.assertEqual(original,evidence);self.assertEqual(20,ledger.live_exposure('L'))
+            self.assertTrue(a.reconcile_terminal_entry('d',[evidence]))
+            self.assertEqual(10,ledger.live_exposure('L'))
+
+    def test_scoped_close_terminal_evidence_rejects_foreign_run(self):
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            for run in ('a','b'):
+                ledger.add_run(Run(run,'L',Mode.LIVE,100));ledger.seed_position('p-'+run,run,10)
+                RunLedger(ledger,run).reserve_close('c','p-'+run,10)
+            a,b=RunLedger(ledger,'a'),RunLedger(ledger,'b')
+            evidence=dict(close_id=a.identifier('close','c'),run_id='a',position_id='p-a',quantity=10,filled=0,state='CANCELED',external_id='ca')
+            self.assertFalse(b.reconcile_terminal_close('c',[evidence]))
+            self.assertTrue(a.reconcile_terminal_close('c',[evidence]))
+            self.assertEqual('SUBMITTING',ledger.close_state(b.identifier('close','c')))
