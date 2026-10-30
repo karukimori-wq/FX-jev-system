@@ -59,3 +59,19 @@ class RunEngine:
         scope = self.scope
         scope._owned('positions', 'position_id', position_id)
         return self.closes.submit(scope.identifier('close', close), scope.run_id, position_id, quantity)
+
+    def stop(self, reason='MANUAL'):
+        self.scope.ledger.stop_run(self.scope.run_id, reason)
+
+    def process_cancellations(self):
+        """Process only this run's queued entry cancellations, including legacy IDs."""
+        ledger = self.scope.ledger
+        with ledger._connect() as db:
+            pending = db.execute(
+                "SELECT c.decision_id FROM cancel_requests c JOIN orders o ON o.decision_id=c.decision_id WHERE o.run_id=? AND c.status='PENDING' ORDER BY c.decision_id",
+                (self.scope.run_id,)).fetchall()
+        sent = 0
+        for (decision_id,) in pending:
+            self.scope._owned('orders', 'decision_id', decision_id)
+            sent += bool(ledger.send_cancel(decision_id, self.entries.broker))
+        return sent
