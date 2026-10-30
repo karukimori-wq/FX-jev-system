@@ -126,3 +126,30 @@ class ScopedLedgerTests(unittest.TestCase):
             self.assertFalse(b.reconcile_terminal_close('c',[evidence]))
             self.assertTrue(a.reconcile_terminal_close('c',[evidence]))
             self.assertEqual('SUBMITTING',ledger.close_state(b.identifier('close','c')))
+
+    def test_full_close_fill_finalizes_pending_cancel_atomically(self):
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.transition_close('c','CANCEL_PENDING')
+            with ledger._connect() as db:
+                db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
+                db.execute("INSERT INTO close_cancel_requests VALUES ('c','PENDING')")
+            ledger.apply_close_fill('c','e',10)
+            self.assertEqual('FILLED',ledger.close_state('c'))
+            with ledger._connect() as db:
+                self.assertEqual('CONFIRMED_FILLED',db.execute("SELECT status FROM close_cancel_requests").fetchone()[0])
+                self.assertEqual(0,db.execute("SELECT quantity FROM positions WHERE position_id='p'").fetchone()[0])
+            self.assertFalse(ledger.send_close_cancel('c',object()))
+            self.assertFalse(ledger.apply_close_fill('c','e',10))
+
+    def test_cancel_ack_cannot_overwrite_full_fill_during_send(self):
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.attach_close_external_id('c','ext');ledger.transition_close('c','CANCEL_PENDING')
+            with ledger._connect() as db:
+                db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
+                db.execute("INSERT INTO close_cancel_requests VALUES ('c','PENDING')")
+            class Broker:
+                def cancel_close(self,external):ledger.apply_close_fill('c','during-send',10)
+            self.assertTrue(ledger.send_close_cancel('c',Broker()))
+            with ledger._connect() as db:self.assertEqual('CONFIRMED_FILLED',db.execute('SELECT status FROM close_cancel_requests').fetchone()[0])

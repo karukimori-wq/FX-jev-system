@@ -1,0 +1,5 @@
+# v0.34 全量決済約定と取消の整合
+
+現物確認では決済注文のFILLED遷移自体は既に正しかった。不足はclose_cancel_requestsがPENDING/SENDING/UNKNOWN等のまま残る点。apply_close_fillの全量約定で、建玉数量・約定・注文FILLEDと同じトランザクション内で取消記録をCONFIRMED_FILLEDへ更新する。
+
+96テスト成功。取消送信前全量約定で取消送信なし、送信中全量約定で後続ACKが確定状態を上書きしないこと、同一約定再通知で二重減算なしを確認。照合・旧API移行・実口座検証は別工程。

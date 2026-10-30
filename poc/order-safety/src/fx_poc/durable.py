@@ -455,6 +455,8 @@ class SQLiteLedger:
             new_state = "FILLED" if row[2] + quantity == row[1] else ("CANCEL_PENDING" if row[3] == "CANCEL_PENDING" else "PARTIAL")
             db.execute("UPDATE closes SET filled=filled+?, state=? WHERE close_id=?", (quantity, new_state, close_id))
             db.execute("INSERT INTO close_executions VALUES (?, ?, ?)", (execution_id, close_id, quantity))
+            if new_state == "FILLED" and db.execute("SELECT 1 FROM sqlite_master WHERE name='close_cancel_requests'").fetchone():
+                db.execute("UPDATE close_cancel_requests SET status='CONFIRMED_FILLED' WHERE close_id=?", (close_id,))
             db.commit()
             return True
         except Exception:
