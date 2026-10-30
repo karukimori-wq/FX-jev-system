@@ -40,3 +40,22 @@ class RunLedger:
         close_id = self.identifier('close',close)
         self._owned('closes','close_id',close_id)
         return self.ledger.ingest_close_fill(close_id,self.identifier('execution',execution),quantity)
+
+
+class RunEngine:
+    """Run-bound submission path using the durable engines' existing gates."""
+    def __init__(self, ledger, broker, run_id):
+        from .durable import DurableEngine, DurableCloseEngine
+        self.scope = RunLedger(ledger, run_id)
+        self.entries = DurableEngine(ledger, broker)
+        self.closes = DurableCloseEngine(ledger, broker)
+
+    def submit_entry(self, decision, pair, side, quantity):
+        scope = self.scope
+        return self.entries.submit_intent(Intent(
+            scope.identifier('decision', decision), scope.run_id, pair, side, quantity))
+
+    def submit_close(self, close, position_id, quantity):
+        scope = self.scope
+        scope._owned('positions', 'position_id', position_id)
+        return self.closes.submit(scope.identifier('close', close), scope.run_id, position_id, quantity)
