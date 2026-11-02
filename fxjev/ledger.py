@@ -98,6 +98,15 @@ class Ledger:
                       REFERENCES position_close_batches(account_id,close_order_id)
                 );
             """)
+            # Compatible with databases created by the earliest P0 position PoC.
+            close_fields = {row[1] for row in
+                            db.execute("PRAGMA table_info(position_close_batches)")}
+            if "close_status" not in close_fields:
+                db.execute("""ALTER TABLE position_close_batches
+                    ADD COLUMN close_status TEXT NOT NULL DEFAULT 'filled'""")
+            if "requested_quantity" not in close_fields:
+                db.execute("""ALTER TABLE position_close_batches
+                    ADD COLUMN requested_quantity INTEGER NOT NULL DEFAULT 0""")
 
     @contextmanager
     def _tx(self):
