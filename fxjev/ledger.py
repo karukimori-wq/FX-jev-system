@@ -312,6 +312,35 @@ class Ledger:
             if not changed:
                 raise SafetyError("unresolved reserved order required")
 
+    def recover_unresolved_intents(self) -> tuple[str, ...]:
+        """Explicit startup safety gate after an unclean or uncertain shutdown.
+
+        RESERVED does not prove that an order was never sent. Conservatively
+        turn all such intents into UNKNOWN and keep their *full* risk reserved.
+        Call before enabling admissions on EVERY restart; this prototype has no
+        process supervisor to enforce that prerequisite automatically.
+        """
+        import time
+
+        with self._tx() as db:
+            rows=db.execute("""SELECT client_id FROM orders
+                WHERE status='reserved' ORDER BY client_id""").fetchall()
+            if not rows:
+                return ()
+            db.execute("""CREATE TABLE IF NOT EXISTS startup_recovery_audit (
+                client_id TEXT PRIMARY KEY REFERENCES orders(client_id),
+                from_status TEXT NOT NULL,
+                recovered_at_ns INTEGER NOT NULL
+            )""")
+            now=time.time_ns()
+            for (client_id,) in rows:
+                db.execute("""INSERT INTO startup_recovery_audit
+                    (client_id,from_status,recovered_at_ns)
+                    VALUES(?,'reserved',?)""",(client_id,now))
+            db.execute("""UPDATE orders SET status='unknown'
+                WHERE status='reserved'""")
+        return tuple(row[0] for row in rows)
+
     def reconcile(self, client_id: str, *, proof):
         """Reconcile with three checked sources; no boolean evidence shortcut."""
         from .reconciliation import reconcile_order
