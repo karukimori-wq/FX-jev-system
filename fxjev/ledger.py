@@ -1,6 +1,6 @@
 """Broker-independent SQLite reservation proof of concept. No broker sends."""
 import sqlite3
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 from dataclasses import dataclass
 from enum import Enum
 
@@ -95,6 +95,11 @@ class Ledger:
                 WHERE strategy_id=? AND mode=?""",(strategy_id,mode.value)).fetchone()
             if not row or not row[1] or row[2]!=expected_settings_version:
                 raise SafetyError("missing, disabled or stale safety settings")
+            # An unresolved order blocks new reservations in this trading mode.
+            # This is conservative: account-scoped halts require an account ledger.
+            if db.execute("SELECT 1 FROM orders WHERE mode=? AND status='unknown' LIMIT 1",
+                          (mode.value,)).fetchone():
+                raise SafetyError("UNKNOWN order blocks new reservations in this mode")
             used=db.execute("""SELECT COALESCE(SUM(CASE status
                 WHEN 'canceled' THEN filled_quantity ELSE quantity END),0)
                 FROM orders WHERE strategy_id=? AND mode=?""",
@@ -113,31 +118,20 @@ class Ledger:
             if not changed:
                 raise SafetyError("unresolved reserved order required")
 
-    def reconcile(self,client_id: str,*,status: OrderStatus,
-                  filled_quantity: int,evidence_complete: bool)->None:
-        if not evidence_complete or status not in (OrderStatus.CANCELED,OrderStatus.FILLED):
-            raise SafetyError("complete final broker evidence required")
-        if type(filled_quantity) is not int or filled_quantity<0:
-            raise SafetyError("invalid fill quantity")
-        with self._tx() as db:
-            row=db.execute("SELECT quantity,status FROM orders WHERE client_id=?",
-                (client_id,)).fetchone()
-            if not row or row[1] not in ("unknown","reserved"):
-                raise SafetyError("no unresolved intent")
-            if filled_quantity>row[0] or (status==OrderStatus.FILLED and filled_quantity!=row[0]):
-                raise SafetyError("inconsistent fill evidence")
-            db.execute("UPDATE orders SET status=?,filled_quantity=? WHERE client_id=?",
-                (status.value,filled_quantity,client_id))
+    def reconcile(self, client_id: str, *, proof):
+        """Reconcile with three checked sources; no boolean evidence shortcut."""
+        from .reconciliation import reconcile_order
+        return reconcile_order(self, client_id, proof)
 
     def get(self,client_id: str):
-        with sqlite3.connect(self.filename) as db:
+        with closing(sqlite3.connect(self.filename)) as db:
             row=db.execute("""SELECT client_id,strategy_id,run_id,mode,quantity,
                 filled_quantity,status FROM orders WHERE client_id=?""",(client_id,)).fetchone()
         return Reservation(row[0],row[1],row[2],Mode(row[3]),row[4],
                            row[5],OrderStatus(row[6])) if row else None
 
     def active_exposure(self,strategy_id: str,mode: Mode)->int:
-        with sqlite3.connect(self.filename) as db:
+        with closing(sqlite3.connect(self.filename)) as db:
             return db.execute("""SELECT COALESCE(SUM(CASE status
                 WHEN 'canceled' THEN filled_quantity ELSE quantity END),0)
                 FROM orders WHERE strategy_id=? AND mode=?""",
