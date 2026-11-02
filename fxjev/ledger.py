@@ -193,6 +193,12 @@ class Ledger:
                     settings_version=excluded.settings_version""",
                     (strategy_id,mode.value,max_quantity,int(enabled),version))
             else:
+                # Old orders FK still references strategies(strategy_id,mode).
+                # A disabled/zero-limit legacy anchor preserves that FK while
+                # actual scoped permission comes only from account_strategies.
+                db.execute("""INSERT OR IGNORE INTO strategies
+                    (strategy_id,mode,max_quantity,enabled,settings_version)
+                    VALUES(?,?,0,0,1)""", (strategy_id,mode.value))
                 if not db.execute("""SELECT 1 FROM account_limits
                         WHERE account_id=? AND mode=?""",
                         (account_id,mode.value)).fetchone():
