@@ -27,7 +27,7 @@ class MockWorker:
         }
         scopes = {key: query.format(runs=scopes["run_id"]) for key, query in scopes.items()}
         tables = {
-            "run_id": ("runs", "orders", "positions", "closes", "stop_reasons", "demo_limits", "stop_clearances"),
+            "run_id": ("runs", "orders", "positions", "closes", "stop_reasons", "demo_limits", "stop_clearances", "run_deadlines"),
             "decision_id": ("dispatch_attempts", "cancel_requests", "executions", "entry_reconciliations", "late_entry_fills"),
             "close_id": ("close_cancel_requests", "close_executions", "close_reconciliations", "late_close_fills"),
             "position_id": ("close_conflicts", "close_conflict_clearances"),

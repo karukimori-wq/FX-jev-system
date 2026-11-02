@@ -243,3 +243,29 @@ class ScopedLedgerTests(unittest.TestCase):
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
             worker=MockWorker(ledger,object(),mode=Mode.LIVE)
             with self.assertRaisesRegex(SafetyError,'worker mode mismatch'):worker.run_engine('demo')
+
+    def test_explicit_deadline_persists_and_rejects_expired_entry_but_allows_close(self):
+        from datetime import datetime,timezone
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)))
+            ledger=SQLiteLedger(path)
+            with self.assertRaisesRegex(SafetyError,'deadline expired'):RunLedger(ledger,'a').reserve('d','USD_JPY',Side.BUY,1)
+            ledger.seed_position('p','a',10)
+            self.assertTrue(RunLedger(ledger,'a').reserve_close('c','p',10))
+
+    def test_deadline_rechecked_before_external_send(self):
+        from datetime import datetime,timezone
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            scope=RunLedger(ledger,'a');scope.reserve('d','USD_JPY',Side.BUY,10)
+            with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
+            self.assertEqual('CANCELED',ledger.dispatch_open(scope.identifier('decision','d'),object()).state)
+            self.assertEqual(0,ledger.live_exposure('L'))
+
+    def test_naive_deadline_rejected(self):
+        from datetime import datetime
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db')
+            with self.assertRaisesRegex(SafetyError,'timezone-aware'):ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1)))

@@ -55,6 +55,7 @@ class SQLiteLedger:
                 );
             """)
 
+            db.execute("CREATE TABLE IF NOT EXISTS run_deadlines (run_id TEXT PRIMARY KEY, ends_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS logic_limits (logic_id TEXT PRIMARY KEY, live_cap INTEGER NOT NULL CHECK(live_cap BETWEEN 0 AND 1000000))")
             db.execute("CREATE TABLE IF NOT EXISTS demo_limits (run_id TEXT PRIMARY KEY, quantity_cap INTEGER NOT NULL CHECK(quantity_cap > 0))")
             db.execute("CREATE TABLE IF NOT EXISTS limit_changes (id INTEGER PRIMARY KEY, logic_id TEXT, live_cap INTEGER, changed_at TEXT DEFAULT CURRENT_TIMESTAMP)")
@@ -596,6 +597,12 @@ class SQLiteLedger:
                 if state in ('OPEN', 'PARTIAL'):
                     db.execute("UPDATE orders SET state='CANCEL_PENDING' WHERE decision_id=?", (decision_id,))
 
+    @staticmethod
+    def _deadline_expired(db, run_id):
+        from datetime import datetime, timezone
+        row = db.execute("SELECT ends_at FROM run_deadlines WHERE run_id=?", (run_id,)).fetchone()
+        return bool(row and datetime.now(timezone.utc) >= datetime.fromisoformat(row[0]))
+
     def dispatch_open(self, decision_id, adapter):
         # Durable claim is committed BEFORE I/O; a crash after claim never retries.
         with self.dispatch_gate():
@@ -610,7 +617,7 @@ class SQLiteLedger:
                     return self.get_order(decision_id)
                 run = db.execute("SELECT enabled,logic_id,mode FROM runs WHERE run_id=?", (row[0],)).fetchone()
                 cap = db.execute("SELECT live_cap FROM logic_limits WHERE logic_id=?", (run[1],)).fetchone()
-                blocked = not run[0] or (run[2] == 'live' and (not cap or self._live_exposure(db,run[1]) > cap[0]))
+                blocked = self._deadline_expired(db, row[0]) or not run[0] or (run[2] == 'live' and (not cap or self._live_exposure(db,run[1]) > cap[0]))
                 if blocked:
                     db.execute("UPDATE orders SET state='CANCELED' WHERE decision_id=?", (decision_id,))
                     db.commit()
@@ -691,6 +698,12 @@ class SQLiteLedger:
 
     def add_run(self, run: Run, *, demo_quantity_limit: int | None = None) -> None:
         self._quantity(run.max_quantity)
+        deadline = None
+        if run.ends_at is not None:
+            from datetime import datetime, timezone
+            if not isinstance(run.ends_at, datetime) or run.ends_at.tzinfo is None or run.ends_at.utcoffset() is None:
+                raise SafetyError("timezone-aware end time required")
+            deadline = run.ends_at.astimezone(timezone.utc).isoformat()
         if run.mode == Mode.DEMO:
             if run.max_quantity != 0:
                 raise SafetyError("demo requires max_quantity=0")
@@ -701,6 +714,8 @@ class SQLiteLedger:
             db.execute("BEGIN IMMEDIATE")
             db.execute("INSERT INTO runs VALUES (?, ?, ?, ?, ?)",
                        (run.run_id, run.logic_id, run.mode.value, run.max_quantity, int(run.enabled)))
+            if deadline is not None:
+                db.execute("INSERT INTO run_deadlines VALUES (?,?)", (run.run_id,deadline))
             if run.mode == Mode.DEMO:
                 db.execute("INSERT INTO demo_limits VALUES (?, ?)", (run.run_id, demo_quantity_limit))
             db.commit()
@@ -752,6 +767,8 @@ class SQLiteLedger:
                     raise SafetyError("late fill requires reconciliation")
             if db.execute("SELECT 1 FROM closes WHERE run_id=? AND state='UNKNOWN'", (intent.run_id,)).fetchone():
                 raise SafetyError("run has UNKNOWN close")
+            if self._deadline_expired(db, intent.run_id):
+                raise SafetyError("run deadline expired")
             if not enabled:
                 raise SafetyError("run is stopped")
             self._quantity(intent.quantity, 1)
