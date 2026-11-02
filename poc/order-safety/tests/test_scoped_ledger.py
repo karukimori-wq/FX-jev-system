@@ -221,3 +221,25 @@ class ScopedLedgerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100))
             self.assertEqual(0,RunEngine(ledger,object(),'a').process_close_cancellations())
+
+    def test_worker_scoped_entry_requires_startup_review(self):
+        from fx_poc.worker import MockWorker
+        class Broker:
+            def __init__(self):self.calls=0
+            def submit_open(self,order):self.calls+=1;return 'ext'
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100);ledger.add_run(Run('a','L',Mode.LIVE,100));broker=Broker()
+            worker=MockWorker(ledger,broker,mode=Mode.LIVE);engine=worker.run_engine('a')
+            with self.assertRaises(SafetyError):engine.submit_entry('d','USD_JPY',Side.BUY,1)
+            self.assertEqual(0,broker.calls)
+            worker.approve_resume('a','operator','review',worker.review_token('a'))
+            order=engine.submit_entry('d','USD_JPY',Side.BUY,1)
+            self.assertEqual(engine.scope.identifier('decision','d'),order.decision_id)
+            self.assertEqual(1,broker.calls)
+
+    def test_mode_worker_refuses_other_mode_run_engine(self):
+        from fx_poc.worker import MockWorker
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
+            worker=MockWorker(ledger,object(),mode=Mode.LIVE)
+            with self.assertRaisesRegex(SafetyError,'worker mode mismatch'):worker.run_engine('demo')

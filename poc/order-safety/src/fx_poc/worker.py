@@ -83,3 +83,9 @@ class MockWorker:
     def submit(self, intent):
         self._require_mode(intent.run_id)
         return self.engine.submit_intent(intent)
+
+    def run_engine(self, run_id):
+        """Preferred run-scoped submission interface; startup stops still apply."""
+        from .scoped_ledger import RunEngine
+        self._require_mode(run_id)
+        return RunEngine(self.ledger, self.engine.broker, run_id)
