@@ -146,6 +146,26 @@ class StartupGateTests(unittest.TestCase):
         self.reserve("o2")
         self.assertEqual(self.l.account_exposure("A",Mode.DEMO),3)
 
+    def test_manual_recovery_revokes_approval_even_after_reconciliation(self):
+        self.approve()
+        self.reserve("o1")
+        self.assertEqual(self.l.recover_unresolved_intents(),("o1",))
+        self.assertIn(("SAFETY_CHANGE","A","demo"),self.audit())
+        self.l.reconcile("o1",proof=self.proof())
+        with self.assertRaises(SafetyError):
+            self.reserve("o2")
+        self.approve()
+        self.reserve("o2")
+        self.assertEqual(self.l.account_exposure("A",Mode.DEMO),3)
+
+    def test_manual_recovery_does_not_revoke_unrelated_account(self):
+        self.approve()
+        self.approve(account="B")
+        self.reserve("a1")
+        self.assertEqual(self.l.recover_unresolved_intents(),("a1",))
+        self.reserve("b1",account="B",qty=2)
+        self.assertEqual(self.l.account_exposure("B",Mode.DEMO),2)
+
     def test_explicit_block_removes_token(self):
         self.approve()
         self.runtime.block("A",Mode.DEMO,reason="operator stop")
