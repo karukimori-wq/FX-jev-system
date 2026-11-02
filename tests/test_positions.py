@@ -41,6 +41,7 @@ class PositionsTests(unittest.TestCase):
             account_id="acctA", client_id="entry1",
             broker_entry_order_id="broker-entry-1", strategy_id="alpha",
             run_id="run1", mode=Mode.LIVE, close_order_id=close_id,
+            close_status=OrderStatus.FILLED, requested_quantity=qty,
             executions=(CloseExecution(close_id, "fill-" + close_id,
                                        qty, now - 3_000_000),),
             remaining_quantity=8 - qty if remaining is None else remaining,
@@ -112,6 +113,21 @@ class PositionsTests(unittest.TestCase):
 
     def test_overclose(self):
         self.assert_rejected_unchanged(self.close_proof(9, remaining=0))
+
+    def test_close_order_must_be_final(self):
+        self.assert_rejected_unchanged(self.close_proof(close_status=OrderStatus.UNKNOWN))
+
+    def test_full_close_needs_full_execution_history(self):
+        self.assert_rejected_unchanged(self.close_proof(requested_quantity=6))
+
+    def test_partial_cancel_can_be_reconciled(self):
+        p = self.close_proof(3, close_status=OrderStatus.CANCELED,
+                             requested_quantity=8)
+        self.l.close_position(proof=p)
+        self.assertEqual(self.l.position_remaining("entry1"), 5)
+
+    def test_closing_order_cannot_be_entry_order(self):
+        self.assert_rejected_unchanged(self.close_proof(close_order_id="broker-entry-1"))
 
     def test_missing_order_history(self):
         self.assert_rejected_unchanged(self.close_proof(order_history_complete=False))
