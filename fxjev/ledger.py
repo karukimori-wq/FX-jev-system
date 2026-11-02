@@ -336,12 +336,22 @@ class Ledger:
         return Reservation(row[0],row[1],row[2],Mode(row[3]),row[4],
                            row[5],OrderStatus(row[6]),row[7]) if row else None
 
-    def active_exposure(self,strategy_id: str,mode: Mode)->int:
+    def active_exposure(self, strategy_id: str, mode: Mode,
+                        *, account_id: str | None = None) -> int:
+        """Report strategy exposure, optionally restricted to a single account.
+
+        Omitted account_id preserves earlier reporting behavior by aggregating
+        every account; order admission always uses explicit scoped SQL instead.
+        """
+        if (type(strategy_id) is not str or not strategy_id.strip()
+                or type(mode) is not Mode
+                or (account_id is not None and
+                    (type(account_id) is not str or not account_id.strip()))):
+            raise SafetyError("invalid strategy exposure query")
+        clause="o.strategy_id=? AND o.mode=?"
+        args=(strategy_id,mode.value)
+        if account_id is not None:
+            clause+=" AND o.account_id=?"
+            args+=(account_id,)
         with closing(sqlite3.connect(self.filename)) as db:
-            return db.execute("""SELECT COALESCE(SUM(CASE o.status
-                WHEN 'canceled' THEN COALESCE(p.remaining_quantity,o.filled_quantity)
-                WHEN 'filled' THEN COALESCE(p.remaining_quantity,o.filled_quantity)
-                ELSE o.quantity END),0)
-                FROM orders o LEFT JOIN position_balances p ON p.client_id=o.client_id
-                WHERE o.strategy_id=? AND o.mode=?""",
-                (strategy_id,mode.value)).fetchone()[0]
+            return db.execute(self._exposure_query(clause),args).fetchone()[0]
