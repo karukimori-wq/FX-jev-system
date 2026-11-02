@@ -163,7 +163,7 @@ class Ledger:
             if used+quantity>row[0]:
                 raise SafetyError("strategy quantity limit exceeded")
             db.execute("""INSERT INTO orders(client_id,strategy_id,run_id,mode,
-                account_id,quantity,status) VALUES(?,?,?,?,?,?,?)""",
+                account_id,quantity,filled_quantity,status) VALUES(?,?,?,?,?,?,0,?)""",
                 (client_id,strategy_id,run_id,mode.value,account_id,
                  quantity,OrderStatus.RESERVED.value))
         return Reservation(client_id,strategy_id,run_id,mode,quantity,0,
