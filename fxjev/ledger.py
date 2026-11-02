@@ -368,7 +368,7 @@ class Ledger:
         import time
 
         with self._tx() as db:
-            rows=db.execute("""SELECT client_id FROM orders
+            rows=db.execute("""SELECT client_id,account_id,mode FROM orders
                 WHERE status='reserved' ORDER BY client_id""").fetchall()
             if not rows:
                 return ()
@@ -378,10 +378,12 @@ class Ledger:
                 recovered_at_ns INTEGER NOT NULL
             )""")
             now=time.time_ns()
-            for (client_id,) in rows:
+            for (client_id,account_id,mode_name) in rows:
                 db.execute("""INSERT INTO startup_recovery_audit
                     (client_id,from_status,recovered_at_ns)
                     VALUES(?,'reserved',?)""",(client_id,now))
+                self._invalidate_gate(db,account_id,Mode(mode_name),
+                                      "explicit recovery found unresolved intent")
             db.execute("""UPDATE orders SET status='unknown'
                 WHERE status='reserved'""")
         return tuple(row[0] for row in rows)
