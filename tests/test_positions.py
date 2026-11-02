@@ -19,10 +19,13 @@ class PositionsTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.path = str(Path(self.tmp.name) / "position.sqlite")
         self.l = Ledger(self.path)
-        self.version = self.l.configure("alpha", Mode.LIVE, 12)
-        self.demo_version = self.l.configure("alpha", Mode.DEMO, 12)
+        self.account_version = self.l.configure_account("acctA", Mode.LIVE, 12)
+        self.version = self.l.configure("alpha", Mode.LIVE, 12, account_id="acctA")
+        self.demo_account_version = self.l.configure_account("demo-account", Mode.DEMO, 12)
+        self.demo_version = self.l.configure("alpha", Mode.DEMO, 12, account_id="demo-account")
         self.l.reserve("entry1", "alpha", "run1", Mode.LIVE, 8,
-                       self.version, account_id="acctA")
+                       self.version, account_id="acctA",
+                       expected_account_version=self.account_version)
         self.l.mark_unknown("entry1")
         self.l.reconcile("entry1", proof=self.entry_proof())
 
@@ -69,7 +72,8 @@ class PositionsTests(unittest.TestCase):
         self.assertEqual(self.l.position_remaining("entry1"), 5)
         self.assertEqual(self.l.active_exposure("alpha", Mode.LIVE), 5)
         self.l.reserve("entry2", "alpha", "run2", Mode.LIVE, 7,
-                       self.version, account_id="acctA")
+                       self.version, account_id="acctA",
+                       expected_account_version=self.account_version)
 
     def test_full_close_releases_all(self):
         self.l.close_position(proof=self.close_proof(8))
@@ -83,12 +87,13 @@ class PositionsTests(unittest.TestCase):
         self.assertEqual(self.l.position_remaining("entry1"), 3)
 
     def test_close_after_strategy_stopped(self):
-        self.l.configure("alpha", Mode.LIVE, 12, enabled=False)
+        self.l.configure("alpha", Mode.LIVE, 12, enabled=False, account_id="acctA")
         self.l.close_position(proof=self.close_proof(3))
         self.assertEqual(self.l.position_remaining("entry1"), 5)
         with self.assertRaises(SafetyError):
             self.l.reserve("entry2", "alpha", "run2", Mode.LIVE,
-                           1, self.version, account_id="acctA")
+                           1, self.version, account_id="acctA",
+                       expected_account_version=self.account_version)
 
     def test_persists_across_restart(self):
         self.l.close_position(proof=self.close_proof())
@@ -181,14 +186,16 @@ class PositionsTests(unittest.TestCase):
 
     def test_no_position_without_entry_reconciliation(self):
         self.l.reserve("orphan", "alpha", "run9", Mode.LIVE, 1,
-                       self.version, account_id="acctA")
+                       self.version, account_id="acctA",
+                       expected_account_version=self.account_version)
         self.assertIsNone(self.l.position_remaining("orphan"))
         self.assert_rejected_unchanged(replace(
             self.close_proof(1), client_id="orphan", remaining_quantity=0))
 
     def test_demo_isolation(self):
         self.l.reserve("demo-entry", "alpha", "run1", Mode.DEMO, 5,
-                       self.demo_version, account_id="demo-account")
+                       self.demo_version, account_id="demo-account",
+                       expected_account_version=self.demo_account_version)
         live_before = self.l.active_exposure("alpha", Mode.LIVE)
         demo_before = self.l.active_exposure("alpha", Mode.DEMO)
         self.l.close_position(proof=self.close_proof(3))
