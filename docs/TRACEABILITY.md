@@ -9,8 +9,9 @@
 | 口座ごとの数量上限・UNKNOWN隔離 | 口座分離の詳細設計・P0移行 | `fxjev/ledger.py`、`docs/ACCOUNT_SCOPE_P0.md` | `tests/test_account_scopes.py` | 口座別模擬SQLiteテスト成功 |
 | 旧SQLite資産のフェイルクローズ移行 | P0安全基盤 | `fxjev/ledger.py` | `tests/test_migration.py`、`tests/test_account_scopes.py` | テスト済。実データ移行は未実施 |
 | 実ブローカーAPI・注文送信・資金リスク | 今後の実装依存 | なし | なし | 未実装 |
-| SIGKILL前後のSQLite原子性・未解決予約の保守的復旧 | P0障害復旧・Q304–306ほか | `fxjev/ledger.py`、`docs/FAULT_INJECTION_P0.md` | `tests/test_fault_injection.py` | 強制終了と遅延モックの16テストをCI確認。実運用の起動ゲートは未実装 |
+| SIGKILL前後のSQLite原子性・未解決予約の保守的復旧 | P0障害復旧・Q304–306ほか | `fxjev/ledger.py`、`docs/FAULT_INJECTION_P0.md` | `tests/test_fault_injection.py` | 強制終了と遅延モックの16テストをCI確認。実ブローカーとの一貫性は未実証 |
 | ブローカー送信との原子性・遅延増分約定・複数ホスト | P0安全上の未検証事項 | 未実装 | 未実施 | 本番ブロッカー |
+| 起動時ゲート・起動世代の失効・設定変更時の再承認 | Q304–306、Q310–312、GitHub Issue #5 | `fxjev/startup.py`、`fxjev/demo_service.py`、`fxjev/ledger.py`、`docs/STARTUP_GATE_P0.md` | `tests/test_startup_gate.py` | デモ専用モック実装・CI検証。管理者認証と実注文入口は未実装 |
 | 管理者承認・監査UI・本番保護 | Q310–312など | 未完成 | なし | 未実装 |
 | 設計から実装への移行 | Q310–312 | `docs/IMPLEMENTATION_PLAN.md` | 文書のみ | 初版 |
 
