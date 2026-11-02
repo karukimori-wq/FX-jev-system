@@ -26,6 +26,7 @@ class BrokerOrder:
     requested_quantity: int
     status: OrderStatus
     final_at_ns: int
+    account_id: str = "legacy"
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,7 @@ class OwnedPosition:
     mode: Mode
     open_quantity: int
     observed_at_ns: int
+    account_id: str = "legacy"
 
 
 @dataclass(frozen=True)
@@ -79,7 +81,8 @@ def _validate(proof: ReconciliationProof, now_ns: int) -> int:
         raise SafetyError("all three broker evidence sets must be complete")
     order, position = proof.order, proof.position
     if (not all(type(x) is str and x.strip() for x in (
-            order.client_id, order.broker_order_id, order.strategy_id, order.run_id))
+            order.client_id, order.broker_order_id, order.strategy_id, order.run_id,
+            order.account_id, position.account_id))
             or type(order.mode) is not Mode
             or type(position.mode) is not Mode
             or type(order.status) is not OrderStatus
@@ -91,9 +94,10 @@ def _validate(proof: ReconciliationProof, now_ns: int) -> int:
             or not _is_nonneg_int(position.observed_at_ns)):
         raise SafetyError("invalid order or position evidence")
     if (position.client_id, position.broker_order_id,
-            position.strategy_id, position.run_id, position.mode) != (
+            position.strategy_id, position.run_id, position.mode,
+            position.account_id) != (
             order.client_id, order.broker_order_id, order.strategy_id,
-            order.run_id, order.mode):
+            order.run_id, order.mode, order.account_id):
         raise SafetyError("position ownership does not match order")
     if (position.observed_at_ns < order.final_at_ns
             or position.observed_at_ns > now_ns
@@ -140,11 +144,13 @@ def reconcile_order(ledger: Ledger, client_id: str,
     digest = hashlib.sha256(data.encode("utf-8")).hexdigest()
 
     with ledger._tx() as db:
-        row = db.execute("""SELECT strategy_id,run_id,mode,quantity,status
-            FROM orders WHERE client_id=?""", (client_id,)).fetchone()
+        row = db.execute("""SELECT strategy_id,run_id,mode,quantity,
+            status,account_id FROM orders WHERE client_id=?""",
+            (client_id,)).fetchone()
         if (not row or row[:4] != (order.strategy_id, order.run_id,
                                     order.mode.value, order.requested_quantity)
-                or row[4] not in ("unknown", "reserved")):
+                or row[4] not in ("unknown", "reserved")
+                or row[5] != order.account_id):
             raise SafetyError("order intent missing, finalized, or inconsistent")
         db.execute("""CREATE TABLE IF NOT EXISTS reconciliation_audit (
             client_id TEXT PRIMARY KEY REFERENCES orders(client_id),
@@ -167,4 +173,15 @@ def reconcile_order(ledger: Ledger, client_id: str,
             (order.status.value,filled_quantity,client_id)).rowcount
         if changed != 1:
             raise SafetyError("order changed during reconciliation")
+        if filled_quantity:
+            try:
+                db.execute("""INSERT INTO position_balances
+                    (client_id,account_id,strategy_id,run_id,mode,
+                     broker_entry_order_id,opened_quantity,remaining_quantity)
+                    VALUES(?,?,?,?,?,?,?,?)""", (
+                    client_id,order.account_id,order.strategy_id,order.run_id,
+                    order.mode.value,order.broker_order_id,
+                    filled_quantity,filled_quantity))
+            except sqlite3.IntegrityError as exc:
+                raise SafetyError("entry position identity is already recorded") from exc
     return digest
