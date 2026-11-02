@@ -35,9 +35,13 @@ class MigrationTests(unittest.TestCase):
         self.assertIsNone(ledger.position_remaining("legacy1"))
         self.assertEqual(ledger.active_exposure("s", Mode.LIVE), 5)
         # Never infer a newly verified position from historical order records.
-        ledger.reserve("new1", "s", "r2", Mode.LIVE, 7, 1, account_id="acctB")
+        av=ledger.configure_account("acctB",Mode.LIVE,12)
+        sv=ledger.configure("s",Mode.LIVE,12,account_id="acctB")
+        # Historical filled exposure has unknown account ownership:
+        # never start account-scoped reservations until reconciled manually.
         with self.assertRaises(SafetyError):
-            ledger.reserve("new2", "s", "r2", Mode.LIVE, 1, 1, account_id="acctB")
+            ledger.reserve("new1", "s", "r2", Mode.LIVE, 7, sv,
+                           account_id="acctB",expected_account_version=av)
 
     def test_older_position_close_audit_schema_gets_new_columns(self):
         with closing(sqlite3.connect(self.path)) as db:
@@ -59,8 +63,10 @@ class MigrationTests(unittest.TestCase):
 
     def test_entry_reconciliation_rejects_account_substitution(self):
         ledger=Ledger(self.path)
-        v=ledger.configure("s", Mode.LIVE, 10)
-        ledger.reserve("entry", "s", "run", Mode.LIVE, 6, v, account_id="acctB")
+        av=ledger.configure_account("acctB",Mode.LIVE,10)
+        v=ledger.configure("s", Mode.LIVE, 10, account_id="acctB")
+        ledger.reserve("entry", "s", "run", Mode.LIVE, 6, v,
+                       account_id="acctB",expected_account_version=av)
         ledger.mark_unknown("entry")
         p=entry_proof("entry", qty=6, filled=6, status=OrderStatus.FILLED,
                       strategy="s",run="run",mode=Mode.LIVE)
