@@ -144,6 +144,27 @@ class Ledger:
         finally:
             db.close()
 
+    @staticmethod
+    def _invalidate_gate(db, account_id: str, mode: Mode,
+                         reason: str) -> None:
+        """Invalidate any active runtime token in the configuration transaction."""
+        if not db.execute("""SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='runtime_gates'""").fetchone():
+            return
+        result=db.execute("""UPDATE runtime_gates SET state='blocked',
+            token='',approved_account_version=NULL,
+            approved_by=NULL,approved_ref=NULL
+            WHERE account_id=? AND mode=? AND state='open'""",
+            (account_id,mode.value))
+        if result.rowcount:
+            import time
+            generation=db.execute("""SELECT generation FROM runtime_control
+                WHERE id=1""").fetchone()[0]
+            db.execute("""INSERT INTO runtime_gate_audit
+                (generation,account_id,mode,action,actor,reference,at_ns)
+                VALUES(?,?,?,'SAFETY_CHANGE','system',?,?)""",
+                (generation,account_id,mode.value,reason,time.time_ns()))
+
     def configure_account(self, account_id: str, mode: Mode,
                           max_quantity: int, *, enabled: bool = True) -> int:
         """Register an explicit account-wide risk budget (mock only).
@@ -169,6 +190,7 @@ class Ledger:
                 enabled=excluded.enabled,
                 settings_version=excluded.settings_version""",
                 (account_id,mode.value,max_quantity,int(enabled),version))
+            self._invalidate_gate(db,account_id,mode,"account settings version changed")
         return version
 
     def configure(self, strategy_id: str, mode: Mode, max_quantity: int,
@@ -216,6 +238,7 @@ class Ledger:
                     settings_version=excluded.settings_version""",
                     (account_id,strategy_id,mode.value,max_quantity,
                      int(enabled),version))
+            self._invalidate_gate(db,account_id,mode,"strategy settings version changed")
         return version
 
     @staticmethod
@@ -230,13 +253,30 @@ class Ledger:
     def reserve(self, client_id: str, strategy_id: str, run_id: str, mode: Mode,
                 quantity: int, expected_settings_version: int,
                 *, account_id: str = "legacy",
-                expected_account_version: int | None = None) -> Reservation:
+                expected_account_version: int | None = None,
+                admission_token: str | None = None) -> Reservation:
         if (not all(type(v) is str and v.strip() for v in (
                 client_id,strategy_id,run_id,account_id))
                 or type(mode) is not Mode or type(quantity) is not int
                 or quantity <= 0 or type(expected_settings_version) is not int):
             raise SafetyError("invalid order request")
         with self._tx() as db:
+            # A runtime-managed database requires the current boot's
+            # admission token; the check and reservation are ONE transaction.
+            if db.execute("""SELECT 1 FROM sqlite_master WHERE type='table'
+                AND name='runtime_control'""").fetchone():
+                if mode is Mode.LIVE or account_id=="legacy":
+                    raise SafetyError("runtime gate prohibits LIVE and legacy admissions")
+                current=db.execute("SELECT generation FROM runtime_control WHERE id=1").fetchone()
+                gate=db.execute("""SELECT state,token,generation,
+                    approved_account_version FROM runtime_gates
+                    WHERE account_id=? AND mode=?""",
+                    (account_id,mode.value)).fetchone()
+                if (not current or not gate or gate[0]!="open"
+                        or not admission_token or type(admission_token) is not str
+                        or gate[1]!=admission_token or gate[2]!=current[0]
+                        or gate[3]!=expected_account_version):
+                    raise SafetyError("startup gate is closed, stale or unauthorized")
             if db.execute("SELECT 1 FROM orders WHERE client_id=?",
                           (client_id,)).fetchone():
                 raise SafetyError("duplicate client ID: reconcile instead of resending")
@@ -308,10 +348,14 @@ class Ledger:
 
     def mark_unknown(self,client_id: str)->None:
         with self._tx() as db:
-            changed=db.execute("""UPDATE orders SET status='unknown'
-                WHERE client_id=? AND status='reserved'""",(client_id,)).rowcount
-            if not changed:
+            row=db.execute("""SELECT account_id,mode FROM orders
+                WHERE client_id=? AND status='reserved'""",
+                (client_id,)).fetchone()
+            if not row:
                 raise SafetyError("unresolved reserved order required")
+            db.execute("""UPDATE orders SET status='unknown'
+                WHERE client_id=? AND status='reserved'""",(client_id,))
+            self._invalidate_gate(db,row[0],Mode(row[1]),"order became UNKNOWN")
 
     def recover_unresolved_intents(self) -> tuple[str, ...]:
         """Explicit startup safety gate after an unclean or uncertain shutdown.
