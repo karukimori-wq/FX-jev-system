@@ -192,3 +192,32 @@ class ScopedLedgerTests(unittest.TestCase):
             self.assertEqual('CANCEL_PENDING',ledger.close_state('c'))
             ledger.apply_close_fill('c','rest',6)
             with ledger._connect() as db:self.assertEqual(('CONFIRMED_FILLED',),db.execute('SELECT status FROM close_cancel_requests').fetchone())
+
+    def test_close_cancellation_queue_is_run_owned_and_unknown_not_retried(self):
+        from fx_poc.scoped_ledger import RunEngine
+        class Broker:
+            def __init__(self):self.calls=[]
+            def cancel_close(self,external):self.calls.append(external);raise TimeoutError()
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'db';ledger=SQLiteLedger(path);broker=Broker()
+            with ledger._connect() as db:db.execute('CREATE TABLE close_conflicts(position_id TEXT PRIMARY KEY,pending_quantity INTEGER,remaining_quantity INTEGER)')
+            engines={}
+            for run in ('a','b'):
+                ledger.add_run(Run(run,'L',Mode.LIVE,100));ledger.seed_position('p-'+run,run,10)
+                engine=RunEngine(ledger,broker,run);engines[run]=engine
+                engine.scope.reserve_close('c','p-'+run,10)
+                close=engine.scope.identifier('close','c');ledger.transition_close(close,'OPEN');ledger.attach_close_external_id(close,'ext-'+run)
+                with ledger._connect() as db:db.execute('INSERT INTO close_conflicts VALUES (?,20,10)',('p-'+run,))
+            with self.assertRaises(SafetyError):engines['a'].queue_conflicting_close_cancels('p-b')
+            for run in ('a','b'):engines[run].queue_conflicting_close_cancels('p-'+run)
+            self.assertEqual(1,engines['a'].process_close_cancellations());self.assertEqual(['ext-a'],broker.calls)
+            self.assertEqual(0,RunEngine(SQLiteLedger(path),broker,'a').process_close_cancellations())
+            with ledger._connect() as db:
+                self.assertEqual('PENDING',db.execute('SELECT status FROM close_cancel_requests WHERE close_id=?',(engines['b'].scope.identifier('close','c'),)).fetchone()[0])
+                self.assertEqual(10,db.execute("SELECT quantity FROM positions WHERE position_id='p-a'").fetchone()[0])
+
+    def test_close_cancel_processor_handles_absent_queue(self):
+        from fx_poc.scoped_ledger import RunEngine
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100))
+            self.assertEqual(0,RunEngine(ledger,object(),'a').process_close_cancellations())

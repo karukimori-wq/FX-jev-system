@@ -88,3 +88,21 @@ class RunEngine:
             self.scope._owned('orders', 'decision_id', decision_id)
             sent += bool(ledger.send_cancel(decision_id, self.entries.broker))
         return sent
+
+    def queue_conflicting_close_cancels(self, position_id):
+        self.scope._owned('positions', 'position_id', position_id)
+        return self.scope.ledger.queue_conflicting_close_cancels(position_id)
+
+    def process_close_cancellations(self):
+        ledger = self.scope.ledger
+        with ledger._connect() as db:
+            if not db.execute("SELECT 1 FROM sqlite_master WHERE name='close_cancel_requests'").fetchone():
+                return 0
+            pending = db.execute(
+                "SELECT c.close_id FROM close_cancel_requests c JOIN closes o ON o.close_id=c.close_id WHERE o.run_id=? AND c.status='PENDING' ORDER BY c.close_id",
+                (self.scope.run_id,)).fetchall()
+        sent = 0
+        for (close_id,) in pending:
+            self.scope._owned('closes', 'close_id', close_id)
+            sent += bool(ledger.send_close_cancel(close_id, self.entries.broker))
+        return sent

@@ -1,0 +1,5 @@
+# v0.35 run別決済取消
+
+RunEngine.queue_conflicting_close_cancelsは建玉所有を確認して既存競合取消処理へ接続。process_close_cancellationsは対象runのPENDINGのみ処理。旧DBでqueue未作成なら0を返す。UNKNOWN/SENDING/ACKを無条件再送せず、建玉数量・決済予約を受付だけで解放しない。
+
+100テスト成功。別run建玉の取消要求拒否、他runキュー未消費、取消UNKNOWNの再接続後再送なし、未作成queueを検証。全旧API強制移行・期限・成績等は未完了。
