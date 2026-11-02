@@ -79,6 +79,8 @@ class Ledger:
                     account_id TEXT NOT NULL,
                     close_order_id TEXT NOT NULL,
                     client_id TEXT NOT NULL REFERENCES position_balances(client_id),
+                    close_status TEXT NOT NULL DEFAULT 'filled',
+                    requested_quantity INTEGER NOT NULL DEFAULT 0,
                     quantity INTEGER NOT NULL CHECK(quantity>0),
                     remaining_quantity INTEGER NOT NULL CHECK(remaining_quantity>=0),
                     evidence_sha256 TEXT NOT NULL,
