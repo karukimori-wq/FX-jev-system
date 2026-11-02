@@ -29,8 +29,9 @@ class Reservation:
     account_id: str = "legacy"
 
 class Ledger:
-    """Uses BEGIN IMMEDIATE to serialize risk reservations across processes.
-    No broker adapter or position-closing implementation is included.
+    """Uses BEGIN IMMEDIATE for process-safe SQLite mock risk accounting.
+    No broker adapter or real order sender is included; close evidence is simulated.
+    The startup recovery gate must be invoked explicitly by a supervisor.
     """
     def __init__(self, filename: str):
         self.filename = filename
