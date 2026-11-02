@@ -9,7 +9,7 @@ import json
 import sqlite3
 import time
 
-from .ledger import Ledger, Mode, SafetyError
+from .ledger import Ledger, Mode, OrderStatus, SafetyError
 from .reconciliation import MAX_SNAPSHOT_AGE_NS
 
 
@@ -30,6 +30,8 @@ class PositionCloseProof:
     run_id: str
     mode: Mode
     close_order_id: str
+    close_status: OrderStatus
+    requested_quantity: int
     executions: tuple[CloseExecution, ...]
     remaining_quantity: int
     order_final_at_ns: int
@@ -50,6 +52,8 @@ def _quantity(value):
 def _validate(proof, now_ns):
     if (type(proof) is not PositionCloseProof
             or type(proof.mode) is not Mode
+            or type(proof.close_status) is not OrderStatus
+            or proof.close_status not in (OrderStatus.FILLED, OrderStatus.CANCELED)
             or type(proof.executions) is not tuple
             or not proof.executions
             or not all(type(item) is CloseExecution for item in proof.executions)):
@@ -62,7 +66,10 @@ def _validate(proof, now_ns):
             proof.account_id, proof.client_id, proof.broker_entry_order_id,
             proof.strategy_id, proof.run_id, proof.close_order_id)):
         raise SafetyError("invalid close identity")
-    if (not _quantity(proof.remaining_quantity)
+    if (not _quantity(proof.requested_quantity)
+            or proof.requested_quantity == 0
+            or proof.close_order_id == proof.broker_entry_order_id
+            or not _quantity(proof.remaining_quantity)
             or not _quantity(proof.order_final_at_ns)
             or not _quantity(proof.snapshot_at_ns)
             or proof.snapshot_at_ns < proof.order_final_at_ns
@@ -82,6 +89,10 @@ def _validate(proof, now_ns):
             raise SafetyError("duplicate, invalid or unowned close fill")
         seen.add(fill.execution_id)
         quantity += fill.quantity
+    if (quantity > proof.requested_quantity
+            or (proof.close_status == OrderStatus.FILLED
+                and quantity != proof.requested_quantity)):
+        raise SafetyError("close fills do not match final close order state")
     return quantity
 
 
@@ -112,10 +123,12 @@ def close_position(ledger: Ledger, proof: PositionCloseProof) -> str:
 
         try:
             db.execute("""INSERT INTO position_close_batches
-                (account_id,close_order_id,client_id,quantity,
-                 remaining_quantity,evidence_sha256,recorded_at_ns)
-                VALUES(?,?,?,?,?,?,?)""", (
-                proof.account_id,proof.close_order_id,proof.client_id,closed,
+                (account_id,close_order_id,client_id,close_status,
+                 requested_quantity,quantity,remaining_quantity,
+                 evidence_sha256,recorded_at_ns)
+                VALUES(?,?,?,?,?,?,?,?,?)""", (
+                proof.account_id,proof.close_order_id,proof.client_id,
+                proof.close_status.value,proof.requested_quantity,closed,
                 proof.remaining_quantity,digest,now_ns))
             for fill in proof.executions:
                 db.execute("""INSERT INTO position_close_executions
