@@ -153,3 +153,42 @@ class ScopedLedgerTests(unittest.TestCase):
                 def cancel_close(self,external):ledger.apply_close_fill('c','during-send',10)
             self.assertTrue(ledger.send_close_cancel('c',Broker()))
             with ledger._connect() as db:self.assertEqual('CONFIRMED_FILLED',db.execute('SELECT status FROM close_cancel_requests').fetchone()[0])
+
+    def test_close_fill_cancel_write_failure_rolls_back_every_record(self):
+        import sqlite3
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'db';ledger=SQLiteLedger(path)
+            ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.transition_close('c','CANCEL_PENDING')
+            with ledger._connect() as db:
+                db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
+                db.execute("INSERT INTO close_cancel_requests VALUES ('c','UNKNOWN')")
+                db.execute("CREATE TRIGGER fail_cancel_update BEFORE UPDATE ON close_cancel_requests BEGIN SELECT RAISE(ABORT,'injected failure'); END")
+            with self.assertRaises(sqlite3.IntegrityError):ledger.apply_close_fill('c','e',10)
+            reopened=SQLiteLedger(path)
+            with reopened._connect() as db:
+                self.assertEqual((10,),db.execute("SELECT quantity FROM positions WHERE position_id='p'").fetchone())
+                self.assertEqual((0,'CANCEL_PENDING'),db.execute("SELECT filled,state FROM closes WHERE close_id='c'").fetchone())
+                self.assertEqual(('UNKNOWN',),db.execute('SELECT status FROM close_cancel_requests').fetchone())
+                self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='close_executions'").fetchone())
+                db.execute('DROP TRIGGER fail_cancel_update')
+            self.assertTrue(reopened.apply_close_fill('c','e',10))
+            self.assertFalse(reopened.apply_close_fill('c','e',10))
+            with reopened._connect() as db:
+                self.assertEqual((0,),db.execute("SELECT quantity FROM positions WHERE position_id='p'").fetchone())
+                self.assertEqual(('CONFIRMED_FILLED',),db.execute('SELECT status FROM close_cancel_requests').fetchone())
+
+    def test_partial_close_fill_keeps_cancel_uncertainty_until_full(self):
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.transition_close('c','CANCEL_PENDING')
+            with ledger._connect() as db:
+                db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
+                db.execute("INSERT INTO close_cancel_requests VALUES ('c','UNKNOWN')")
+            ledger.apply_close_fill('c','partial',4)
+            with ledger._connect() as db:
+                self.assertEqual(('UNKNOWN',),db.execute('SELECT status FROM close_cancel_requests').fetchone())
+                self.assertEqual((6,),db.execute("SELECT quantity FROM positions WHERE position_id='p'").fetchone())
+            self.assertEqual('CANCEL_PENDING',ledger.close_state('c'))
+            ledger.apply_close_fill('c','rest',6)
+            with ledger._connect() as db:self.assertEqual(('CONFIRMED_FILLED',),db.execute('SELECT status FROM close_cancel_requests').fetchone())
