@@ -8,6 +8,21 @@ Jev AIを選択器として使うFX自動売買システム。**現時点は設�
 - 価格鮮度・スプレッド・時計差・不整合・UNKNOWN注文は新規取引を安全側に停止。既存ポジション保護は継続。
 - 実口座接続・実売買は、テストと管理者承認が完了するまで禁止。
 
+## P0モック安全基盤（Draft PR、実売買禁止）
+
+現在のブランチ `codex/fx-foundation-p0` には、SQLiteによる模擬注文台帳、口座別リスク予約、UNKNOWN注文の照合、モック建玉残高、SIGKILL障害注入、起動時の安全ゲートがあります。
+
+実ブローカーAPI・実発注・損切り処理・本番の承認認証は **未実装** です。以下のコマンドはテスト用SQLiteを安全側に起動するだけで、注文は送信しません。
+
+```sh
+python -m fxjev.demo_service --db ./fx-mock.sqlite
+python -m unittest discover -s tests -v
+```
+
+- [P0起動ゲート・安全上の未対応事項](docs/STARTUP_GATE_P0.md)
+- [P0障害注入の検証範囲](docs/FAULT_INJECTION_P0.md)
+- [Draft PR #4](https://github.com/karukimori-wq/FX-jev-system/pull/4)
+
 ## 設計資料
 - [開発計画](docs/IMPLEMENTATION_PLAN.md)
 - [仕様追跡表](docs/TRACEABILITY.md)
