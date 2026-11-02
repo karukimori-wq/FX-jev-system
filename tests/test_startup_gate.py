@@ -1,6 +1,7 @@
 """Startup gate acceptance tests. All orders are SQLite mock reservations."""
 from contextlib import closing
 from dataclasses import replace
+import json
 import os
 import signal
 import sqlite3
@@ -276,6 +277,38 @@ class StartupGateTests(unittest.TestCase):
             l.reserve("first","alpha","run",Mode.DEMO,5,1,
                       account_id="X",expected_account_version=1)
         self.assertEqual(l.account_exposure("X",Mode.DEMO),5)
+
+    def test_demo_bootstrap_cli_forces_boot_and_recovers_intent(self):
+        self.approve()
+        self.reserve("pending",qty=4)
+        previous_generation=self.runtime.generation
+        proc=subprocess.run([
+            sys.executable,"-m","fxjev.demo_service","--db",self.path],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            capture_output=True,text=True,check=True)
+        report=json.loads(proc.stdout)
+        self.assertEqual(report["generation"],previous_generation+1)
+        self.assertEqual(report["recovered_intent_count"],1)
+        self.assertEqual(report["live_trading"],"disabled")
+        self.assertIn("blocked",report["admissions"])
+        self.assertEqual(self.l.get("pending").status,OrderStatus.UNKNOWN)
+        with self.assertRaises(SafetyError): self.reserve("other")
+        self.assertEqual(self.l.account_exposure("A",Mode.DEMO),4)
+
+    def test_demo_bootstrap_cli_new_database_defaults_blocked(self):
+        path=str(Path(self.tmp.name)/"fresh-demo.sqlite")
+        proc=subprocess.run([
+            sys.executable,"-m","fxjev.demo_service","--db",path],
+            cwd=str(Path(__file__).resolve().parents[1]),
+            capture_output=True,text=True,check=True)
+        report=json.loads(proc.stdout)
+        self.assertEqual(report["recovered_intent_count"],0)
+        self.assertEqual(report["live_trading"],"disabled")
+        self.assertEqual(report["generation"],1)
+        boot=Ledger(path)
+        with self.assertRaises(SafetyError):
+            boot.reserve("any","s","r",Mode.DEMO,1,1,
+                         account_id="A",expected_account_version=1)
 
     def test_gate_cannot_authorize_closed_account_with_manual_token(self):
         self.approve()
