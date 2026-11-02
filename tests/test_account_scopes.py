@@ -48,6 +48,21 @@ class AccountScopeTests(unittest.TestCase):
         self.assertEqual(self.l.account_exposure("acctA", Mode.LIVE), 7)
         self.assertEqual(self.l.account_exposure("acctB", Mode.LIVE), 6)
 
+    def test_strategy_exposure_reports_by_account(self):
+        self.order("A1", 4)
+        self.order("B1", 5, account="acctB")
+        self.assertEqual(self.l.active_exposure("alpha", Mode.LIVE,
+                                               account_id="acctA"), 4)
+        self.assertEqual(self.l.active_exposure("alpha", Mode.LIVE,
+                                               account_id="acctB"), 5)
+        self.assertEqual(self.l.active_exposure("alpha", Mode.LIVE), 9)
+
+    def test_account_risk_zero_cap_fail_closed(self):
+        version = self.l.configure_account("acctA", Mode.LIVE, 0)
+        with self.assertRaises(SafetyError):
+            self.order("A1", 1, av=version)
+        self.order("B1", 1, account="acctB")
+
     def test_total_account_budget_across_strategies(self):
         self.order("A1", 6)
         with self.assertRaises(SafetyError):
