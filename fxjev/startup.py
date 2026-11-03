@@ -104,6 +104,10 @@ class TradingRuntime:
                 AND mode='demo' AND status IN ('reserved','unknown') LIMIT 1""",
                 (account_id,)).fetchone():
                 raise SafetyError("unresolved orders prohibit mock restart approval")
+            if db.execute("""SELECT 1 FROM mock_event_holds
+                    WHERE mode='demo' AND account_id IN (?, 'legacy') LIMIT 1""",
+                    (account_id,)).fetchone():
+                raise SafetyError("unresolved mock fill anomaly prohibits approval")
             if db.execute(self.ledger._exposure_query(
                     "o.account_id='legacy' AND o.mode='demo'")).fetchone()[0]>0:
                 raise SafetyError("unattributed legacy risk blocks mock approval")
