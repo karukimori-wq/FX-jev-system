@@ -89,3 +89,18 @@ class MockWorker:
         from .scoped_ledger import RunEngine
         self._require_mode(run_id)
         return RunEngine(self.ledger, self.engine.broker, run_id)
+
+    def maintenance_tick(self):
+        """One cooperative maintenance pass; the host schedules repeated calls."""
+        with self.ledger._connect() as db:
+            runs = db.execute('SELECT run_id FROM runs WHERE (? IS NULL OR mode=?) ORDER BY run_id',
+                              (self.mode, self.mode)).fetchall()
+        results = []
+        for (run_id,) in runs:
+            engine = self.run_engine(run_id)
+            expired = engine.enforce_deadline()
+            entries = engine.process_cancellations()
+            closes = engine.process_close_cancellations()
+            results.append(dict(run_id=run_id, expired=expired,
+                                entry_cancels=entries, close_cancels=closes))
+        return results

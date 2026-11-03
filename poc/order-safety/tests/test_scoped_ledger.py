@@ -300,3 +300,32 @@ class ScopedLedgerTests(unittest.TestCase):
             self.assertTrue(ledger.expire_run('a'))
             self.assertEqual('CANCELED',ledger.get_order(scope.identifier('decision','d')).state)
             self.assertEqual([],ledger.pending_cancels());self.assertEqual(0,ledger.live_exposure('L'))
+
+    def test_worker_maintenance_enforces_deadline_and_sends_cancel_once(self):
+        from datetime import datetime,timezone
+        from fx_poc.worker import MockWorker
+        class Broker:
+            def __init__(self):self.calls=0
+            def submit_open(self,order):return 'ext'
+            def cancel_open(self,order):self.calls+=1
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE)
+            worker.approve_resume('a','operator','review',worker.review_token('a'))
+            worker.run_engine('a').submit_entry('d','USD_JPY',Side.BUY,10)
+            with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
+            result=worker.maintenance_tick()
+            self.assertTrue(result[0]['expired']);self.assertEqual(1,result[0]['entry_cancels'])
+            self.assertEqual(0,worker.maintenance_tick()[0]['entry_cancels'])
+            self.assertEqual(1,broker.calls);self.assertEqual(10,ledger.live_exposure('L'))
+
+    def test_worker_maintenance_does_not_touch_other_mode(self):
+        from datetime import datetime,timezone
+        from fx_poc.worker import MockWorker
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db')
+            ledger.add_run(Run('demo','L',Mode.DEMO,0,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)),demo_quantity_limit=100)
+            worker=MockWorker(ledger,object(),mode=Mode.LIVE)
+            self.assertEqual([],worker.maintenance_tick())
+            with ledger._connect() as db:self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='demo'").fetchone())
