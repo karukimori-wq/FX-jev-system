@@ -135,6 +135,45 @@ class LifecycleReviewTests(unittest.TestCase):
             FROM mock_lifecycle_revisions"""),[(6,8,3,3,5)])
         self.assertFalse(self.rows("SELECT 1 FROM mock_event_holds WHERE client_id='entry'"))
 
+    def test_close_cannot_release_risk_while_extra_fill_is_quarantined(self):
+        self.scenario()
+        now=time.time_ns()
+        close=PositionCloseProof(
+            account_id="A",client_id="entry",broker_entry_order_id="broker-entry",
+            strategy_id="alpha",run_id="r1",mode=Mode.DEMO,
+            close_order_id="close-during-hold",close_status=OrderStatus.FILLED,
+            requested_quantity=1,
+            executions=(CloseExecution("close-during-hold","exec-during-hold",
+                                       1,now-3_000_000),),
+            remaining_quantity=2,order_final_at_ns=now-2_000_000,
+            snapshot_at_ns=now,order_history_complete=True,
+            fill_history_complete=True,position_snapshot_complete=True)
+        before=self.l.account_exposure("A",Mode.DEMO)
+        with self.assertRaises(SafetyError):
+            self.l.close_position(proof=close)
+        self.assertEqual(self.l.account_exposure("A",Mode.DEMO),before)
+        self.assertEqual(self.l.position_remaining("entry"),3)
+        self.assertFalse(self.rows("""SELECT 1 FROM position_close_batches
+            WHERE close_order_id='close-during-hold'"""))
+
+    def test_after_reconciliation_new_close_proof_may_update_remaining(self):
+        self.scenario()
+        self.review()
+        now=time.time_ns()
+        close=PositionCloseProof(
+            account_id="A",client_id="entry",broker_entry_order_id="broker-entry",
+            strategy_id="alpha",run_id="r1",mode=Mode.DEMO,
+            close_order_id="close-after-review",close_status=OrderStatus.FILLED,
+            requested_quantity=1,
+            executions=(CloseExecution("close-after-review","exec-after-review",
+                                       1,now-3_000_000),),
+            remaining_quantity=4,order_final_at_ns=now-2_000_000,
+            snapshot_at_ns=now,order_history_complete=True,
+            fill_history_complete=True,position_snapshot_complete=True)
+        self.l.close_position(proof=close)
+        self.assertEqual(self.l.position_remaining("entry"),4)
+        self.assertEqual(self.l.account_exposure("A",Mode.DEMO),4)
+
     def test_full_close_then_late_fill_reopens_attributed_mock_position(self):
         self.entry()
         self.close(6,0,"close-full")
