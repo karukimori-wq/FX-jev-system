@@ -109,6 +109,12 @@ def close_position(ledger: Ledger, proof: PositionCloseProof) -> str:
                          default=lambda val: val.value)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     with ledger._tx() as db:
+        # Any uncertain extra entry fill makes the open balance untrustworthy.
+        # Never release the reserved risk on mock close evidence while held.
+        if db.execute("""SELECT 1 FROM mock_event_holds WHERE
+            client_id=? AND account_id=? AND mode=? LIMIT 1""",
+            (proof.client_id,proof.account_id,proof.mode.value)).fetchone():
+            raise SafetyError("unresolved fill anomaly prevents close risk release")
         row = db.execute("""SELECT account_id,strategy_id,run_id,mode,
             broker_entry_order_id,opened_quantity,remaining_quantity
             FROM position_balances WHERE client_id=?""",
