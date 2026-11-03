@@ -278,7 +278,12 @@ class Ledger:
         return ("""SELECT COALESCE(SUM(CASE
             WHEN EXISTS (SELECT 1 FROM mock_event_holds h
                 WHERE h.client_id=o.client_id AND h.mode=o.mode
-                  AND h.account_id=o.account_id) THEN o.quantity
+                  AND h.account_id=o.account_id)
+                THEN MAX(o.quantity,
+                    COALESCE(p.remaining_quantity,o.filled_quantity) +
+                    COALESCE((SELECT SUM(e.quantity) FROM mock_fill_inbox e
+                        WHERE e.client_id=o.client_id AND e.mode=o.mode
+                          AND e.account_id=o.account_id),0))
             WHEN o.status='canceled' THEN
                 COALESCE(p.remaining_quantity,o.filled_quantity)
             WHEN o.status='filled' THEN
