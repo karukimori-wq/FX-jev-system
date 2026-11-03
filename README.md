@@ -10,7 +10,7 @@ Jev AIを選択器として使うFX自動売買システム。**現時点は設�
 
 ## P0モック安全基盤（Draft PR、実売買禁止）
 
-現在のブランチ `codex/fx-foundation-p0` には、SQLiteによる模擬注文台帳、口座別リスク予約、UNKNOWN注文の照合、モック建玉残高、SIGKILL障害注入、起動時の安全ゲート、遅延・重複した模擬約定の永続イベント台帳があります。
+現在のブランチ `codex/fx-foundation-p0` には、SQLiteによる模擬注文台帳、口座別リスク予約、UNKNOWN注文の照合、モック建玉残高、SIGKILL障害注入、起動時の安全ゲート、遅延・重複した模擬約定の永続イベント台帳、DEMO確定済み注文の追加約定再照合があります。
 
 実ブローカーAPI・実発注・損切り処理・本番の承認認証は **未実装** です。以下のコマンドはテスト用SQLiteを安全側に起動するだけで、注文は送信しません。
 
@@ -19,6 +19,7 @@ python -m fxjev.demo_service --db ./fx-mock.sqlite
 python -m unittest discover -s tests -v
 ```
 
+- [DEMO確定注文の追加約定訂正・安全な保留解除（本番不可）](docs/LATE_RECONCILIATION_P0.md)
 - [P0イベントの隔離とリスク再評価](docs/EVENT_INBOX_P0.md)
 - [P0起動ゲート・安全上の未対応事項](docs/STARTUP_GATE_P0.md)
 - [P0障害注入の検証範囲](docs/FAULT_INJECTION_P0.md)
