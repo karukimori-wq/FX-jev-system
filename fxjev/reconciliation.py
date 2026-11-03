@@ -152,6 +152,32 @@ def reconcile_order(ledger: Ledger, client_id: str,
                 or row[4] not in ("unknown", "reserved")
                 or row[5] != order.account_id):
             raise SafetyError("order intent missing, finalized, or inconsistent")
+        # The simulated inbox is an append-only observation. Full mock
+        # reconciliation must account for every observed execution for this
+        # intent; otherwise even a "complete" caller flag cannot release risk.
+        cross_scope=db.execute("""SELECT 1 FROM mock_fill_inbox
+            WHERE client_id=? AND (account_id!=? OR mode!=?) LIMIT 1""",
+            (client_id,order.account_id,order.mode.value)).fetchone()
+        if cross_scope:
+            raise SafetyError("fill event claims a different account or mode")
+        observed=db.execute("""SELECT execution_id,broker_order_id,quantity
+            FROM mock_fill_inbox WHERE client_id=? AND account_id=? AND mode=?""",
+            (client_id,order.account_id,order.mode.value)).fetchall()
+        fills={fill.execution_id:(fill.broker_order_id,fill.quantity)
+               for fill in proof.fills}
+        if any(fills.get(execution_id)!=(broker_id,quantity)
+               for execution_id,broker_id,quantity in observed):
+            raise SafetyError("complete reconciliation is missing observed fills")
+        # An observed ID with conflicting payloads must never be cleared by
+        # a single later proof, even when one version appears consistent.
+        conflicts=db.execute("""SELECT 1 FROM mock_event_conflicts c
+            WHERE c.client_id=? OR EXISTS (
+                SELECT 1 FROM mock_fill_inbox e WHERE e.client_id=?
+                  AND e.account_id=c.account_id AND e.mode=c.mode
+                  AND e.execution_id=c.execution_id) LIMIT 1""",
+            (client_id,client_id)).fetchone()
+        if conflicts:
+            raise SafetyError("conflicting execution events require manual review")
         db.execute("""CREATE TABLE IF NOT EXISTS reconciliation_audit (
             client_id TEXT PRIMARY KEY REFERENCES orders(client_id),
             broker_order_id TEXT NOT NULL UNIQUE,
@@ -173,6 +199,11 @@ def reconcile_order(ledger: Ledger, client_id: str,
             (order.status.value,filled_quantity,client_id)).rowcount
         if changed != 1:
             raise SafetyError("order changed during reconciliation")
+        # Only verified matching mock evidence can clear the *initial*
+        # event quarantine. New arrivals after a final order reapply the hold.
+        db.execute("""DELETE FROM mock_event_holds
+            WHERE client_id=? AND account_id=? AND mode=?""",
+            (client_id,order.account_id,order.mode.value))
         if filled_quantity:
             try:
                 db.execute("""INSERT INTO position_balances
