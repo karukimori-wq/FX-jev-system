@@ -106,3 +106,6 @@ class RunEngine:
             self.scope._owned('closes', 'close_id', close_id)
             sent += bool(ledger.send_close_cancel(close_id, self.entries.broker))
         return sent
+
+    def enforce_deadline(self):
+        return self.scope.ledger.expire_run(self.scope.run_id)

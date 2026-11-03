@@ -269,3 +269,34 @@ class ScopedLedgerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db')
             with self.assertRaisesRegex(SafetyError,'timezone-aware'):ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1)))
+
+    def test_deadline_stop_queues_sent_entries_once_preserves_position(self):
+        from datetime import datetime,timezone
+        from fx_poc.scoped_ledger import RunEngine
+        class Broker:
+            def submit_open(self,order):return 'ext'
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            engine=RunEngine(ledger,Broker(),'a');engine.submit_entry('d','USD_JPY',Side.BUY,10)
+            engine.scope.ingest_entry_fill('d','e',4)
+            with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
+            self.assertTrue(engine.enforce_deadline())
+            self.assertTrue(RunEngine(SQLiteLedger(path),Broker(),'a').enforce_deadline())
+            self.assertEqual(1,len(ledger.pending_cancels()));self.assertEqual(10,ledger.live_exposure('L'))
+            self.assertTrue(engine.scope.reserve_close('c',engine.scope.filled_position('e'),4))
+            with ledger._connect() as db:
+                self.assertEqual((0,),db.execute("SELECT enabled FROM runs WHERE run_id='a'").fetchone())
+                self.assertEqual(1,db.execute("SELECT COUNT(*) FROM stop_reasons WHERE reason='DEADLINE'").fetchone()[0])
+
+    def test_deadline_noop_before_expiry_and_discards_unsent_after(self):
+        from datetime import datetime,timezone
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            scope=RunLedger(ledger,'a');scope.reserve('d','USD_JPY',Side.BUY,10)
+            self.assertFalse(ledger.expire_run('a'))
+            with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
+            self.assertTrue(ledger.expire_run('a'))
+            self.assertEqual('CANCELED',ledger.get_order(scope.identifier('decision','d')).state)
+            self.assertEqual([],ledger.pending_cancels());self.assertEqual(0,ledger.live_exposure('L'))

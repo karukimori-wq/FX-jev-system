@@ -466,6 +466,21 @@ class SQLiteLedger:
         finally:
             db.close()
 
+    def expire_run(self, run_id):
+        """Persist deadline stop and entry cancellations together; no broker I/O."""
+        with self.dispatch_gate(), self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if not db.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone():
+                raise SafetyError("unknown run")
+            if not self._deadline_expired(db, run_id):
+                db.commit()
+                return False
+            db.execute("UPDATE runs SET enabled=0 WHERE run_id=?", (run_id,))
+            db.execute("INSERT INTO stop_reasons VALUES (?, 'DEADLINE', 1) ON CONFLICT(run_id,reason) DO UPDATE SET active=1", (run_id,))
+            self._cancel_entries(db, "run_id=?", (run_id,), "DEADLINE")
+            db.commit()
+            return True
+
     def stop_run(self, run_id: str, reason: str = "MANUAL") -> None:
         if not reason.strip():
             raise SafetyError("stop reason required")
