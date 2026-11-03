@@ -70,3 +70,15 @@ GitHub Issue [#5](https://github.com/karukimori-wq/FX-jev-system/issues/5) は�
 - [ ] 認証済みブローカーからの完全な注文/約定/建玉履歴、閉鎖済み建玉も含めたリコンシリエーション、真正な管理者承認
 
 [モック最終注文の増分再照合と本番ブロッカー](LATE_RECONCILIATION_P0.md) / [Issue #6](https://github.com/karukimori-wq/FX-jev-system/issues/6) / [初回CI 187件](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41568575981)
+
+## P0決済履歴付き増分再照合（DEMOモック・2026-11-04）
+
+- [x] `HistoricalClose` と `LifecycleReviewProof` を実装。全決済注文ID/状態/要求数量/約定ID・数量/当時の残高が台帳の原記録と一致するまで訂正を拒否
+- [x] `新残高 = 新エントリー累計 − 過去決済済み累計` を現在の模擬建玉証拠と突合し、SQLite原子的に訂正
+- [x] 初回照合監査・決済注文/約定履歴を上書きせず、専用の `mock_lifecycle_revisions` に訂正前後の数量と証拠SHAを追記
+- [x] 追加約定保留中、模擬決済照合によるリスク解放も拒否する安全弁を追加。訂正後の新しい模擬決済のみ許可
+- [x] `tests/test_lifecycle_reconciliation.py` に27件追加、合計214テスト成功
+- [ ] 認証済みの全エントリー約定ID・決済約定IDを最初から完全保存し、実ブローカーの建玉/注文台帳との整合を検証
+- [ ] 管理者本人認証・実口座別の資金/証拠金/最大損失・ブローカー送信との原子性・孤立建玉監視
+
+[DEMO決済履歴付き再照合の限界](LIFECYCLE_RECONCILIATION_P0.md) / [CI: 214 tests](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41725175174)
