@@ -120,6 +120,38 @@ class Ledger:
                       REFERENCES account_limits(account_id,mode)
                 );
             """)
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS mock_fill_inbox (
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('demo','live')),
+                    execution_id TEXT NOT NULL,
+                    client_id TEXT NOT NULL,
+                    broker_order_id TEXT NOT NULL,
+                    quantity INTEGER NOT NULL CHECK(quantity>0),
+                    occurred_at_ns INTEGER NOT NULL CHECK(occurred_at_ns>=0),
+                    payload_sha256 TEXT NOT NULL,
+                    received_at_ns INTEGER NOT NULL,
+                    PRIMARY KEY(account_id,mode,execution_id)
+                );
+                CREATE TABLE IF NOT EXISTS mock_event_holds (
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('demo','live')),
+                    client_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    held_at_ns INTEGER NOT NULL,
+                    PRIMARY KEY(account_id,mode,client_id)
+                );
+                CREATE TABLE IF NOT EXISTS mock_event_conflicts (
+                    conflict_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    execution_id TEXT NOT NULL,
+                    client_id TEXT NOT NULL,
+                    old_sha256 TEXT NOT NULL,
+                    new_sha256 TEXT NOT NULL,
+                    detected_at_ns INTEGER NOT NULL
+                );
+            """)
             # Compatible with databases created by the earliest P0 position PoC.
             close_fields = {row[1] for row in
                             db.execute("PRAGMA table_info(position_close_batches)")}
@@ -243,9 +275,14 @@ class Ledger:
 
     @staticmethod
     def _exposure_query(where_clause: str) -> str:
-        return ("""SELECT COALESCE(SUM(CASE o.status
-            WHEN 'canceled' THEN COALESCE(p.remaining_quantity,o.filled_quantity)
-            WHEN 'filled' THEN COALESCE(p.remaining_quantity,o.filled_quantity)
+        return ("""SELECT COALESCE(SUM(CASE
+            WHEN EXISTS (SELECT 1 FROM mock_event_holds h
+                WHERE h.client_id=o.client_id AND h.mode=o.mode
+                  AND h.account_id=o.account_id) THEN o.quantity
+            WHEN o.status='canceled' THEN
+                COALESCE(p.remaining_quantity,o.filled_quantity)
+            WHEN o.status='filled' THEN
+                COALESCE(p.remaining_quantity,o.filled_quantity)
             ELSE o.quantity END),0)
             FROM orders o LEFT JOIN position_balances p ON p.client_id=o.client_id
             WHERE """ + where_clause)
@@ -277,6 +314,11 @@ class Ledger:
                         or gate[1]!=admission_token or gate[2]!=current[0]
                         or gate[3]!=expected_account_version):
                     raise SafetyError("startup gate is closed, stale or unauthorized")
+            # Durable event anomalies override any previous mock approval.
+            if db.execute("""SELECT 1 FROM mock_event_holds
+                WHERE mode=? AND account_id IN (?, 'legacy') LIMIT 1""",
+                (mode.value,account_id)).fetchone():
+                raise SafetyError("mock fill anomaly quarantines account admissions")
             if db.execute("SELECT 1 FROM orders WHERE client_id=?",
                           (client_id,)).fetchone():
                 raise SafetyError("duplicate client ID: reconcile instead of resending")
