@@ -12,6 +12,7 @@ import time
 
 from .ledger import Ledger, Mode, OrderStatus, SafetyError
 from .positions import CloseExecution
+from .execution_history import record_late_entry
 from .reconciliation import (
     MAX_SNAPSHOT_AGE_NS, OwnedPosition, ReconciliationProof, _validate,
 )
@@ -213,6 +214,11 @@ def reconcile_late_demo_lifecycle(
             if prior and prior[0]!=previous:
                 raise SafetyError("prior late review chain is inconsistent")
 
+        # Prevent revisions from silently dropping/relabeling historical
+        # entry execution IDs. Persist new IDs with a linked audit snapshot.
+        record_late_entry(
+            db,proof.entry,expected_previous=previous,evidence_hash=digest,
+            kind="late-with-closes",recorded_at_ns=now)
         db.execute("""CREATE TABLE IF NOT EXISTS mock_lifecycle_revisions (
             revision_id INTEGER PRIMARY KEY AUTOINCREMENT,
             client_id TEXT NOT NULL REFERENCES orders(client_id),
