@@ -121,3 +121,16 @@ GitHub Issue [#5](https://github.com/karukimori-wq/FX-jev-system/issues/5) は�
 - [ ] 実口座接続・実注文送信・最大損失/証拠金、ネット建玉/通貨別リスク・多ホスト復旧、設計Q1〜312の個別トレーサビリティ
 
 詳細：[SEQUENCED_FEED_P0.md](SEQUENCED_FEED_P0.md) ／ [CI 278件](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41764148441)
+
+
+## P0旧非連番イベント隔離・読み取り専用の欠番診断（2026-11-04）
+
+- [x] 最初の連番イベント・初回watermark申告時に、同一口座/modeへ既に保存された非連番約定を検出して持続的警報に記録
+- [x] 旧受信イベントにsequenceを推測付与せず、新規予約・DEMOモック承認を安全側に停止（保留を削除しても警報は残る）
+- [x] 欠番範囲、未受信数、申告高水位、保存済みチェックポイント/stream IDの整合を、SQLite読み取り専用スナップショットで出力する機能を追加
+- [x] 欠番一覧の省略時も総件数を保持。初期化前のstreamは安全扱いせず明示的に拒否。受信診断で警報は変更されない
+- [x] `tests/test_feed_inspection.py` に18件追加し、**全296テスト成功**
+- [ ] 実ブローカーの認証済みイベント配信・連番の定義/完全性、管理者本人認証と外部原本による安全な保留解除・再開
+- [ ] 欠番に伴う発注停止以外の実建玉保護・実口座の証拠金/最大損失・多ホスト復旧
+
+詳細：[FEED_INSPECTION_P0.md](FEED_INSPECTION_P0.md) ／ [CI 296件](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41806041805)
