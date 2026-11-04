@@ -105,6 +105,7 @@ def ingest_mock_sequenced_fill(ledger: Ledger, envelope: MockSequencedFill) -> s
                 if reused:
                     _alert(db,ledger,account,mode,stream,seq,
                            "execution-reused-at-new-sequence",digest,now)
+                    failure="mock execution ID reused at different sequence"
                 status,conflict=_ingest_mock_fill_tx(
                     db,ledger,notice,digest,now)
                 if conflict:
