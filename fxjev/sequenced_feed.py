@@ -34,7 +34,7 @@ def _alert(db, ledger, account, mode, stream, seq, kind, digest, now):
           "mock feed "+kind+"; requires independent review",now)
 
 
-def _state(db, account, mode, stream):
+def _state(db, ledger, account, mode, stream, now):
     found=db.execute("""SELECT stream_id,next_expected,high_watermark,has_alarm
         FROM mock_feed_streams WHERE account_id=? AND mode=?""",
         (account,mode.value)).fetchone()
@@ -43,7 +43,16 @@ def _state(db, account, mode, stream):
     db.execute("""INSERT INTO mock_feed_streams
         (account_id,mode,stream_id,next_expected,high_watermark,has_alarm)
         VALUES(?,?,?,1,0,0)""",(account,mode.value,stream))
-    return (stream,1,0,0)
+    # A stream introduced after a legacy unsequenced fill cannot prove that
+    # older traffic had contiguous identifiers. Keep a permanent alarm rather
+    # than pretending sequence 1 establishes a clean historical baseline.
+    existed=db.execute("""SELECT 1 FROM mock_fill_inbox
+        WHERE account_id=? AND mode=? LIMIT 1""",
+        (account,mode.value)).fetchone()
+    if existed:
+        _alert(db,ledger,account,mode,stream,0,
+               "preexisting-unsequenced-history",None,now)
+    return (stream,1,0,1 if existed else 0)
 
 
 def _advance(db,account,mode,next_expected):
@@ -75,7 +84,7 @@ def ingest_mock_sequenced_fill(ledger: Ledger, envelope: MockSequencedFill) -> s
     failure=None
     status="duplicate"
     with ledger._tx() as db:
-        active,next_expected,watermark,alarm=_state(db,account,mode,stream)
+        active,next_expected,watermark,alarm=_state(db,ledger,account,mode,stream,now)
         if active!=stream:
             _alert(db,ledger,account,mode,stream,seq,"unexpected-stream",digest,now)
             failure="sequenced stream replacement requires manual review"
@@ -141,7 +150,7 @@ def observe_mock_watermark(ledger: Ledger, *,
     now=time.time_ns()
     with ledger._tx() as db:
         active,next_expected,watermark,alarm=_state(
-            db,account_id,mode,stream_id)
+            db,ledger,account_id,mode,stream_id,now)
         if active!=stream_id:
             _alert(db,ledger,account_id,mode,stream_id,last_sequence,
                    "unexpected-stream-watermark",None,now)
