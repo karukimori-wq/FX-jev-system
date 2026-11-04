@@ -205,6 +205,37 @@ class Ledger:
             if "executed_at_ns" not in exec_columns:
                 db.execute("""ALTER TABLE position_close_executions
                     ADD COLUMN executed_at_ns INTEGER""")
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS mock_feed_streams (
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('demo','live')),
+                    stream_id TEXT NOT NULL,
+                    next_expected INTEGER NOT NULL CHECK(next_expected>=1),
+                    high_watermark INTEGER NOT NULL CHECK(high_watermark>=0),
+                    has_alarm INTEGER NOT NULL CHECK(has_alarm IN (0,1)),
+                    PRIMARY KEY(account_id,mode)
+                );
+                CREATE TABLE IF NOT EXISTS mock_feed_messages (
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('demo','live')),
+                    stream_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL CHECK(sequence>=1),
+                    execution_id TEXT NOT NULL,
+                    payload_sha256 TEXT NOT NULL,
+                    received_at_ns INTEGER NOT NULL,
+                    PRIMARY KEY(account_id,mode,sequence)
+                );
+                CREATE TABLE IF NOT EXISTS mock_feed_alerts (
+                    alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    stream_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    kind TEXT NOT NULL,
+                    payload_sha256 TEXT,
+                    detected_at_ns INTEGER NOT NULL
+                );
+            """)
             # Compatible with databases created by the earliest P0 position PoC.
             close_fields = {row[1] for row in
                             db.execute("PRAGMA table_info(position_close_batches)")}
