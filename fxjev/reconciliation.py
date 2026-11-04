@@ -13,6 +13,7 @@ import time
 
 from .ledger import Ledger, Mode, OrderStatus, SafetyError
 from .execution_history import record_initial_entry
+from .accounting_journal import record_initial_journal
 
 MAX_SNAPSHOT_AGE_NS = 30 * 1_000_000_000
 
@@ -217,4 +218,8 @@ def reconcile_order(ledger: Ledger, client_id: str,
                     filled_quantity,filled_quantity))
             except sqlite3.IntegrityError as exc:
                 raise SafetyError("entry position identity is already recorded") from exc
+        # The accounting timeline begins with the same transaction that
+        # establishes the original final entry and position.
+        record_initial_journal(db,proof,evidence_hash=digest,
+                               recorded_at_ns=now_ns)
     return digest
