@@ -92,19 +92,20 @@ GitHub Issue [#5](https://github.com/karukimori-wq/FX-jev-system/issues/5) は�
 - [x] 履歴IDを持たない旧DBは自動バックフィルせず、追加訂正・新規決済を保留
 - [x] 決済履歴を変更せず複数回のエントリー増分訂正を検証。訂正後に決済を追加し、さらに訂正する混在時系列は安全側に拒否
 - [x] `tests/test_execution_history.py` に18件追加、`tests/test_lifecycle_reconciliation.py` に6件追加。合計**238 tests / OK**
-- [ ] すべての決済約定時刻・エントリー/決済混在時系列の完全なジャーナルと厳密リプレイ
+- [x] 新しいDEMOモックの決済実行時刻を保存し、エントリー訂正・部分/全決済が交互に生じる場合のSQLite処理順ジャーナルを原子的に追記・再生
+- [ ] 認証済みブローカーの真の約定時系列（イベント欠落・後から到着する発生時刻を含む）との整合検証
 - [ ] 署名/外部不変台帳による真正な証跡、ブローカーAPIと管理者認証済み承認、実口座・実FXリスク検証
 
 [初回約定ID保存とハッシュ履歴の限界](EXECUTION_HISTORY_P0.md) / [CI: 238 tests](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41761003419)
 
-## P0初回約定IDと改訂ハッシュ履歴（2026-11-04）
+## P0会計ジャーナル・交互の訂正と決済（2026-11-04）
 
-- [x] 初回照合の全約定ID・数量・記録時刻をentry_executionsへ原子的に保存
-- [x] entry_revision_chainでversionごとの累計・全IDスナップショット・前versionのSHA連鎖を検証
-- [x] ID欠落・数量改変・重複/決済ID衝突・原監査改変・旧DB履歴欠損では追加訂正/模擬決済のリスク解放を拒否
-- [x] 新しい追加約定訂正を複数回検証。過去決済バッチは不変
-- [x] 24ケース追加、GitHub Actionsで全238件成功
-- [ ] 訂正と追加決済が交互に発生する全時系列の厳密な再構成
-- [ ] 署名付き・認証済みのブローカー全約定証拠、管理者本人認証、資金/証拠金、実建玉保護
+- [x] `mock_position_journal` を追加し、初回エントリー、追加訂正、部分/全決済を単調なseqで追記
+- [x] エントリー累計・決済済累計・残建玉と証拠SHA・約定ID/時刻・前行SHAを記録し、変更前の全履歴を検証
+- [x] `position_close_executions` に実行時刻を新規保存。旧DBの時刻が不明ならNULLのままにし、推測せず新規リスク解放を拒否
+- [x] 訂正→決済→訂正の混合順を安全に再構成。再起動時の同じ結果と改変/欠落時の停止をテスト
+- [x] `tests/test_accounting_journal.py` 16件追加。全254件のGitHub Actions成功
+- [ ] 署名/外部不変監査、ブローカーが示す実約定発生時刻の真実性、実API通信とDB原子性
+- [ ] 口座資金/証拠金・損失、管理者認証、外部原本での旧DB救済、全設計Q1–312のトレース
 
-仕様: [EXECUTION_HISTORY_P0.md](EXECUTION_HISTORY_P0.md) / 検証: https://github.com/karukimori-wq/FX-jev-system/actions/runs/41761003419
+検証: [ACCOUNTING_JOURNAL_P0.md](ACCOUNTING_JOURNAL_P0.md) / [CI 254テスト](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41762310230)
