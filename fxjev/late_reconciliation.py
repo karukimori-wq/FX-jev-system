@@ -14,6 +14,7 @@ import time
 from .ledger import Ledger, Mode, OrderStatus, SafetyError
 from .reconciliation import ReconciliationProof, _validate
 from .execution_history import record_late_entry
+from .accounting_journal import verify_position_journal, record_entry_journal
 
 
 def reconcile_late_demo_fill(
@@ -54,6 +55,9 @@ def reconcile_late_demo_fill(
                 or old[6]<initial[2]):
             raise SafetyError("original final evidence is missing or inconsistent")
         previous=old[6]
+        # Fail closed if earlier entry/close accounting updates were not
+        # journaled. The original event time cannot be guessed from totals.
+        verify_position_journal(db,order.client_id)
         if new_total<=previous:
             raise SafetyError("new fill quantity must strictly exceed recorded total")
 
@@ -155,6 +159,8 @@ def reconcile_late_demo_fill(
         db.execute("""DELETE FROM mock_event_holds
             WHERE account_id=? AND mode=? AND client_id=?""",
             (order.account_id,order.mode.value,order.client_id))
+        record_entry_journal(db,proof,evidence_hash=digest,
+                             recorded_at_ns=now)
         # Never reopen the runtime gate. It was revoked on inbox arrival.
         # An explicit *mock DEMO* approval is still required for re-admission.
     return digest
