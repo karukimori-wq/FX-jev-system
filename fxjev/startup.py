@@ -104,6 +104,11 @@ class TradingRuntime:
                 AND mode='demo' AND status IN ('reserved','unknown') LIMIT 1""",
                 (account_id,)).fetchone():
                 raise SafetyError("unresolved orders prohibit mock restart approval")
+            if db.execute("""SELECT 1 FROM mock_feed_streams
+                    WHERE mode='demo' AND account_id IN (?, 'legacy')
+                    AND has_alarm=1 LIMIT 1""",
+                    (account_id,)).fetchone():
+                raise SafetyError("mock feed gap/conflict prevents startup approval")
             if db.execute("""SELECT 1 FROM mock_event_holds
                     WHERE mode='demo' AND account_id IN (?, 'legacy') LIMIT 1""",
                     (account_id,)).fetchone():
