@@ -403,6 +403,13 @@ class Ledger:
                         or gate[1]!=admission_token or gate[2]!=current[0]
                         or gate[3]!=expected_account_version):
                     raise SafetyError("startup gate is closed, stale or unauthorized")
+            # A durable sequence alarm must block admissions even if a
+            # prior fill hold is cleared by an unrelated reconciliation.
+            if db.execute("""SELECT 1 FROM mock_feed_streams
+                WHERE mode=? AND account_id IN (?, 'legacy')
+                  AND has_alarm=1 LIMIT 1""",
+                (mode.value,account_id)).fetchone():
+                raise SafetyError("mock feed continuity alarm blocks admissions")
             # Durable event anomalies override any previous mock approval.
             if db.execute("""SELECT 1 FROM mock_event_holds
                 WHERE mode=? AND account_id IN (?, 'legacy') LIMIT 1""",
