@@ -184,6 +184,21 @@ class SequencedFeedTests(unittest.TestCase):
         self.assertTrue(self.rows("""SELECT 1 FROM mock_event_holds
             WHERE client_id='__feed__:unsequenced'"""))
 
+    def test_unsequenced_bypass_alarm_is_durable_after_hold_deleted(self):
+        self.feed(1)
+        with self.assertRaises(SafetyError):
+            ingest_mock_fill(self.l,self.notice(2))
+        self.assertEqual(self.state()[3],1)
+        self.assertTrue(self.rows("""SELECT 1 FROM mock_feed_alerts
+            WHERE kind='unsequenced-bypass'"""))
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("DELETE FROM mock_event_holds WHERE account_id='A'")
+            db.commit()
+        runtime=TradingRuntime(self.path)
+        with self.assertRaises(SafetyError):
+            runtime.approve_demo("A",operator_id="mock",review_ref="test",
+                                 expected_account_version=self.av)
+
     def test_no_alarm_account_B_still_allows_reservation(self):
         self.feed(3)
         self.reserve("other",account="B")
