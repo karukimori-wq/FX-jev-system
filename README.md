@@ -20,6 +20,7 @@ python -m unittest discover -s tests -v
 ```
 
 - [初回約定ID・SHA-256訂正履歴・旧DBの隔離](docs/EXECUTION_HISTORY_P0.md)
+- [初回約定ID・訂正履歴連鎖・旧DB保護](docs/EXECUTION_HISTORY_P0.md)
 - [決済履歴を含むDEMO増分再照合・監査（本番不可）](docs/LIFECYCLE_RECONCILIATION_P0.md)
 - [決済履歴のないDEMO確定注文の再照合](docs/LATE_RECONCILIATION_P0.md)
 - [P0イベントの隔離とリスク再評価](docs/EVENT_INBOX_P0.md)
