@@ -152,6 +152,32 @@ class Ledger:
                     detected_at_ns INTEGER NOT NULL
                 );
             """)
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS entry_executions (
+                    client_id TEXT NOT NULL REFERENCES orders(client_id),
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('demo','live')),
+                    broker_order_id TEXT NOT NULL,
+                    execution_id TEXT NOT NULL,
+                    quantity INTEGER NOT NULL CHECK(quantity>0),
+                    executed_at_ns INTEGER NOT NULL CHECK(executed_at_ns>=0),
+                    first_version INTEGER NOT NULL CHECK(first_version>=1),
+                    PRIMARY KEY(client_id,execution_id),
+                    UNIQUE(account_id,mode,execution_id)
+                );
+                CREATE TABLE IF NOT EXISTS entry_revision_chain (
+                    client_id TEXT NOT NULL REFERENCES orders(client_id),
+                    version INTEGER NOT NULL CHECK(version>=1),
+                    kind TEXT NOT NULL,
+                    filled_quantity INTEGER NOT NULL CHECK(filled_quantity>=0),
+                    evidence_sha256 TEXT NOT NULL,
+                    snapshot_sha256 TEXT NOT NULL,
+                    previous_sha256 TEXT NOT NULL,
+                    chain_sha256 TEXT NOT NULL,
+                    recorded_at_ns INTEGER NOT NULL,
+                    PRIMARY KEY(client_id,version)
+                );
+            """)
             # Compatible with databases created by the earliest P0 position PoC.
             close_fields = {row[1] for row in
                             db.execute("PRAGMA table_info(position_close_batches)")}
