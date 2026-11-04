@@ -109,3 +109,15 @@ GitHub Issue [#5](https://github.com/karukimori-wq/FX-jev-system/issues/5) は�
 - [ ] 口座資金/証拠金・損失、管理者認証、外部原本での旧DB救済、全設計Q1–312のトレース
 
 検証: [ACCOUNTING_JOURNAL_P0.md](ACCOUNTING_JOURNAL_P0.md) / [CI 254テスト](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41762310230)
+
+## P0模擬受信番号・欠番・高水位監査（2026-11-04）
+
+- [x] `mock_feed_streams` に口座/modeごとのstream ID・最小未受信番号・申告高水位・持続的警報を保存
+- [x] `mock_feed_messages` と `mock_feed_alerts` に同番号重複/衝突、番号飛び、後追い欠番復旧、別番号への約定ID再利用、stream切替、高水位の未受信/後退を監査
+- [x] 模擬受信イベントと既存の`mock_fill_inbox`を同じSQLiteトランザクションで登録。衝突監査・安全停止は例外発生前にコミット
+- [x] 欠番が埋まった後も警報は永続し、新規予約とDEMOモック承認を拒否。既存の順序なし受信APIによる迂回も別の持続的警報として記録
+- [x] `tests/test_sequenced_feed.py` に24件追加し、既存全テストを含む**278 tests / OK**を確認
+- [ ] ブローカー側の真正なsequence/epoch・認証済み高水位証拠、切断中の欠落再取得・署名付き外部不変監査、管理者本人確認付き再開/警報解除
+- [ ] 実口座接続・実注文送信・最大損失/証拠金、ネット建玉/通貨別リスク・多ホスト復旧、設計Q1〜312の個別トレーサビリティ
+
+詳細：[SEQUENCED_FEED_P0.md](SEQUENCED_FEED_P0.md) ／ [CI 278件](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41764148441)
