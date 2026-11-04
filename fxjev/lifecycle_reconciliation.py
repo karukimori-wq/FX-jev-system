@@ -13,6 +13,7 @@ import time
 from .ledger import Ledger, Mode, OrderStatus, SafetyError
 from .positions import CloseExecution
 from .execution_history import record_late_entry
+from .accounting_journal import verify_position_journal, record_entry_journal
 from .reconciliation import (
     MAX_SNAPSHOT_AGE_NS, OwnedPosition, ReconciliationProof, _validate,
 )
@@ -125,6 +126,7 @@ def reconcile_late_demo_lifecycle(
                 or old[5] not in ("canceled","filled")):
             raise SafetyError("final entry identity or state mismatch")
         previous=old[6]
+        prior_journal=verify_position_journal(db,order.client_id)
         first=db.execute("""SELECT broker_order_id,final_status,filled_quantity
             FROM reconciliation_audit WHERE client_id=?""",
             (order.client_id,)).fetchone()
@@ -140,33 +142,29 @@ def reconcile_late_demo_lifecycle(
             (order.client_id,order.account_id)).fetchall()
         if len(rows)!=len(proof.closes):
             raise SafetyError("close history is missing or has extra batches")
-        # Original close snapshots were taken against the original entry
-        # cumulative fill, not the latest revised entry total. We can replay
-        # that immutable close sequence after later entry-only revisions.
-        # Any closes added after an earlier revision do not fit that original
-        # sequence, so they must fail closed until a chronological journal exists.
-        historical_remaining=first[2]
+        # The immutable chronological journal already replays every entry
+        # revision and close in COMMIT order. Compare ALL close snapshots with
+        # their original audit, not a guessed chain based on initial entry.
         historical_closed=0
         for recorded,provided in zip(rows,proof.closes):
             if recorded!=(provided.close_order_id,provided.status.value,
                          provided.requested_quantity,provided.filled_quantity,
                          provided.recorded_remaining_quantity):
                 raise SafetyError("historical close batch does not match audit")
-            real_executions=db.execute("""SELECT execution_id,quantity FROM
-                position_close_executions WHERE account_id=? AND
-                close_order_id=? AND client_id=?""",
+            real_executions=db.execute("""SELECT execution_id,quantity,
+                executed_at_ns FROM position_close_executions WHERE account_id=?
+                AND close_order_id=? AND client_id=?""",
                 (order.account_id,provided.close_order_id,order.client_id)).fetchall()
-            supplied=sorted((x.execution_id,x.quantity)
+            supplied=sorted((x.execution_id,x.quantity,x.executed_at_ns)
                             for x in provided.executions)
             if sorted(real_executions)!=supplied:
                 raise SafetyError("close execution history does not match audit")
             historical_closed+=provided.filled_quantity
-            historical_remaining-=provided.filled_quantity
-            if (historical_remaining<0
-                    or historical_remaining!=provided.recorded_remaining_quantity):
-                raise SafetyError("historical close balance chain is inconsistent")
 
         previous_remaining=previous-historical_closed
+        if (prior_journal[2]!=previous or prior_journal[3]!=historical_closed
+                or prior_journal[4]!=previous_remaining):
+            raise SafetyError("chronological journal and close history disagree")
         if previous_remaining<0:
             raise SafetyError("recorded closes exceed previous entry fill total")
         position=db.execute("""SELECT account_id,strategy_id,run_id,mode,
@@ -265,5 +263,7 @@ def reconcile_late_demo_lifecycle(
         db.execute("""DELETE FROM mock_event_holds
             WHERE client_id=? AND account_id=? AND mode=?""",
             (order.client_id,order.account_id,order.mode.value))
+        record_entry_journal(db,proof.entry,evidence_hash=digest,
+                             recorded_at_ns=now)
         # Do not re-enable the gate. A separate DEMO mock review is required.
     return digest
