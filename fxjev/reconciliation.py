@@ -12,6 +12,7 @@ import sqlite3
 import time
 
 from .ledger import Ledger, Mode, OrderStatus, SafetyError
+from .execution_history import record_initial_entry
 
 MAX_SNAPSHOT_AGE_NS = 30 * 1_000_000_000
 
@@ -194,6 +195,7 @@ def reconcile_order(ledger: Ledger, client_id: str,
                  digest,now_ns))
         except sqlite3.IntegrityError as exc:
             raise SafetyError("broker order identity already reconciled") from exc
+        record_initial_entry(db, proof, evidence_hash=digest, recorded_at_ns=now_ns)
         changed = db.execute("""UPDATE orders SET status=?,filled_quantity=?
             WHERE client_id=? AND status IN ('unknown','reserved')""",
             (order.status.value,filled_quantity,client_id)).rowcount
