@@ -199,7 +199,7 @@ class LifecycleReviewTests(unittest.TestCase):
              FROM mock_lifecycle_revisions ORDER BY revision_id"""),
                          [(6,8,3,3,5),(8,9,3,5,6)])
 
-    def test_post_revision_close_requires_full_chronological_replay(self):
+    def test_post_revision_close_then_late_fill_replays_journal(self):
         self.scenario()
         self.review()
         self.close(1,4,"close-after-first-revision")
@@ -210,10 +210,18 @@ class LifecycleReviewTests(unittest.TestCase):
             BrokerFill("broker-entry","exec-entry",6,now-4_000_000),
             BrokerFill("broker-entry","late",2,now-3_000_000),
             BrokerFill("broker-entry","late2",1,now-2_000_000)))
-        with self.assertRaises(SafetyError):
-            self.review(replace(p,entry=entry))
-        self.assertEqual(self.l.position_remaining("entry"),4)
-        self.assertTrue(self.rows(
+        self.review(replace(p,entry=entry))
+        self.assertEqual(self.l.position_remaining("entry"),5)
+        self.assertEqual(self.rows("""SELECT kind,ref_id,entry_total,
+            closed_total,remaining FROM mock_position_journal
+            WHERE client_id='entry' ORDER BY seq"""), [
+            ("entry_initial","v1",6,0,6),
+            ("close","close1",6,2,4),
+            ("close","close2",6,3,3),
+            ("entry_revision","v2",8,3,5),
+            ("close","close-after-first-revision",8,4,4),
+            ("entry_revision","v3",9,4,5)])
+        self.assertFalse(self.rows(
             "SELECT 1 FROM mock_event_holds WHERE client_id='entry'"))
 
     def test_lifecycle_revision_persists_original_and_late_execution_ids(self):
