@@ -12,6 +12,7 @@ import time
 from .ledger import Ledger, Mode, OrderStatus, SafetyError
 from .reconciliation import MAX_SNAPSHOT_AGE_NS
 from .execution_history import verify_entry_lineage
+from .accounting_journal import verify_position_journal, record_close_journal
 
 
 @dataclass(frozen=True)
@@ -128,6 +129,7 @@ def close_position(ledger: Ledger, proof: PositionCloseProof) -> str:
         # booked position risk. An old database without execution IDs cannot
         # be silently backfilled or used to authorize a new close revision.
         verify_entry_lineage(db,proof.client_id,expected_total=row[5])
+        verify_position_journal(db,proof.client_id)
         for fill in proof.executions:
             if db.execute("""SELECT 1 FROM entry_executions
                 WHERE account_id=? AND execution_id=? LIMIT 1""",
@@ -148,10 +150,11 @@ def close_position(ledger: Ledger, proof: PositionCloseProof) -> str:
                 proof.remaining_quantity,digest,now_ns))
             for fill in proof.executions:
                 db.execute("""INSERT INTO position_close_executions
-                    (account_id,execution_id,close_order_id,client_id,quantity)
-                    VALUES(?,?,?,?,?)""", (
+                    (account_id,execution_id,close_order_id,client_id,
+                     quantity,executed_at_ns)
+                    VALUES(?,?,?,?,?,?)""", (
                     proof.account_id,fill.execution_id,proof.close_order_id,
-                    proof.client_id,fill.quantity))
+                    proof.client_id,fill.quantity,fill.executed_at_ns))
         except sqlite3.IntegrityError as exc:
             raise SafetyError("close order or execution was already applied") from exc
         changed = db.execute("""UPDATE position_balances
@@ -159,4 +162,6 @@ def close_position(ledger: Ledger, proof: PositionCloseProof) -> str:
             (proof.remaining_quantity,proof.client_id,old_remaining)).rowcount
         if changed != 1:
             raise SafetyError("position changed during close reconciliation")
+        record_close_journal(db,proof,evidence_hash=digest,
+                             recorded_at_ns=now_ns)
     return digest
