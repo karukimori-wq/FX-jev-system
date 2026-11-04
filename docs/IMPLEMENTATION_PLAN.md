@@ -82,3 +82,17 @@ GitHub Issue [#5](https://github.com/karukimori-wq/FX-jev-system/issues/5) は�
 - [ ] 管理者本人認証・実口座別の資金/証拠金/最大損失・ブローカー送信との原子性・孤立建玉監視
 
 [DEMO決済履歴付き再照合の限界](LIFECYCLE_RECONCILIATION_P0.md) / [CI: 214 tests](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41725175174)
+
+
+## P0初回約定IDと訂正履歴の連鎖（2026-11-04）
+
+- [x] `entry_executions` に初回注文の全約定ID・数量・取得時刻・口座/モードを原子的に記録。元の `reconciliation_audit` と照合
+- [x] `entry_revision_chain` にversionごとの累計約定、全IDスナップショットSHA、元証拠SHA、前versionのSHAを追記。後続訂正で毎versionを再検証
+- [x] 元IDの削除・数量変更・他注文/決済IDとの衝突、原監査・ハッシュ・記録済み数量の書換えを検出し、安全側に追加訂正・模擬決済のリスク解放を拒否
+- [x] 履歴IDを持たない旧DBは自動バックフィルせず、追加訂正・新規決済を保留
+- [x] 決済履歴を変更せず複数回のエントリー増分訂正を検証。訂正後に決済を追加し、さらに訂正する混在時系列は安全側に拒否
+- [x] `tests/test_execution_history.py` に18件追加、`tests/test_lifecycle_reconciliation.py` に6件追加。合計**238 tests / OK**
+- [ ] すべての決済約定時刻・エントリー/決済混在時系列の完全なジャーナルと厳密リプレイ
+- [ ] 署名/外部不変台帳による真正な証跡、ブローカーAPIと管理者認証済み承認、実口座・実FXリスク検証
+
+[初回約定ID保存とハッシュ履歴の限界](EXECUTION_HISTORY_P0.md) / [CI: 238 tests](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41761003419)
