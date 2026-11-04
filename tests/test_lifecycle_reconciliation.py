@@ -174,6 +174,46 @@ class LifecycleReviewTests(unittest.TestCase):
         self.assertEqual(self.l.position_remaining("entry"),4)
         self.assertEqual(self.l.account_exposure("A",Mode.DEMO),4)
 
+    def test_lifecycle_revision_persists_original_and_late_execution_ids(self):
+        self.scenario()
+        self.review()
+        with self.l._tx() as db:
+            rows=db.execute("""SELECT execution_id,quantity,first_version
+                FROM entry_executions WHERE client_id='entry'
+                ORDER BY execution_id""").fetchall()
+            chain=db.execute("""SELECT version,kind,filled_quantity
+                FROM entry_revision_chain WHERE client_id='entry'
+                ORDER BY version""").fetchall()
+        self.assertEqual(rows,[("exec-entry",6,1),("late",2,2)])
+        self.assertEqual(chain,[(1,"initial",6),(2,"late-with-closes",8)])
+
+    def test_historical_close_execution_id_cannot_be_new_entry_id(self):
+        self.entry()
+        self.close(2,4,"close1")
+        self.late(quantity=2,execution="exec-close1")
+        p=self.review_proof(total=8,new=2,current=6)
+        entry=replace(p.entry,fills=(
+            p.entry.fills[0],
+            replace(p.entry.fills[1],execution_id="exec-close1")))
+        self.assert_rejected_and_reserved(replace(p,entry=entry))
+        self.assertEqual(self.l.position_remaining("entry"),4)
+
+    def test_lifecycle_rejects_tampered_original_execution_history(self):
+        self.scenario()
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("""UPDATE entry_executions SET quantity=5
+                WHERE client_id='entry' AND execution_id='exec-entry'""")
+            db.commit()
+        self.assert_rejected_and_reserved(self.review_proof())
+
+    def test_lifecycle_rejects_removed_genesis_history_without_inference(self):
+        self.scenario()
+        with closing(sqlite3.connect(self.path)) as db:
+            db.execute("DELETE FROM entry_revision_chain WHERE client_id='entry'")
+            db.execute("DELETE FROM entry_executions WHERE client_id='entry'")
+            db.commit()
+        self.assert_rejected_and_reserved(self.review_proof())
+
     def test_full_close_then_late_fill_reopens_attributed_mock_position(self):
         self.entry()
         self.close(6,0,"close-full")
