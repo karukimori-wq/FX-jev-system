@@ -178,6 +178,33 @@ class Ledger:
                     PRIMARY KEY(client_id,version)
                 );
             """)
+            db.executescript("""
+                CREATE TABLE IF NOT EXISTS mock_position_journal (
+                    client_id TEXT NOT NULL REFERENCES orders(client_id),
+                    account_id TEXT NOT NULL,
+                    mode TEXT NOT NULL CHECK(mode IN ('demo','live')),
+                    seq INTEGER NOT NULL CHECK(seq>=1),
+                    kind TEXT NOT NULL CHECK(kind IN ('entry_initial','entry_revision','close')),
+                    ref_id TEXT NOT NULL,
+                    entry_total INTEGER NOT NULL CHECK(entry_total>=0),
+                    closed_total INTEGER NOT NULL CHECK(closed_total>=0),
+                    remaining INTEGER NOT NULL CHECK(remaining>=0),
+                    executions_json TEXT NOT NULL,
+                    evidence_sha256 TEXT NOT NULL,
+                    previous_sha256 TEXT NOT NULL,
+                    recorded_at_ns INTEGER NOT NULL CHECK(recorded_at_ns>0),
+                    row_sha256 TEXT NOT NULL,
+                    PRIMARY KEY(client_id,seq),
+                    UNIQUE(client_id,kind,ref_id)
+                );
+            """)
+            # Old SQLite close executions have no trustworthy execution time.
+            # Keep it NULL rather than fabricate timestamps on upgrade.
+            exec_columns={row[1] for row in
+                db.execute("PRAGMA table_info(position_close_executions)")}
+            if "executed_at_ns" not in exec_columns:
+                db.execute("""ALTER TABLE position_close_executions
+                    ADD COLUMN executed_at_ns INTEGER""")
             # Compatible with databases created by the earliest P0 position PoC.
             close_fields = {row[1] for row in
                             db.execute("PRAGMA table_info(position_close_batches)")}
