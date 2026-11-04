@@ -81,8 +81,13 @@ def _ingest_mock_fill_tx(db, ledger: Ledger, notice: FillNotice,
         reason="fill account or mode conflicts with stored intent"
         _hold(db,ledger,owned[0],Mode(owned[1]),notice.client_id,reason,now)
     else:
-        broker=db.execute("""SELECT broker_order_id FROM reconciliation_audit
+        # The very first fill may arrive before any order reconciliation;
+        # preserve legacy behavior without guessing a broker order mapping.
+        has_audit=db.execute("""SELECT 1 FROM sqlite_master WHERE
+            type='table' AND name='reconciliation_audit'""").fetchone()
+        broker=(db.execute("""SELECT broker_order_id FROM reconciliation_audit
             WHERE client_id=?""",(notice.client_id,)).fetchone()
+            if has_audit else None)
         if broker and broker[0]!=notice.broker_order_id:
             reason="fill broker order ID conflicts with finalized evidence"
         if owned[2]=="reserved":
