@@ -44,6 +44,10 @@ python -m unittest discover -s tests -v
 
 GitHub Actions証跡（最終版を確認して記録）：https://github.com/karukimori-wq/FX-jev-system/actions/runs/41764148441
 
+## 追加補強：旧履歴隔離と診断
+
+連番付きストリームの開始前に存在した同一口座/modeの非連番約定は、初回開始時に警報として永続隔離する。また、`inspect_mock_feed()` は欠番範囲・高水位・保存済みチェックポイント整合を読み取り専用で確認できる。**検査しても警報や取引停止は解除されない**。詳しくは [FEED_INSPECTION_P0.md](FEED_INSPECTION_P0.md)。
+
 ## 本番化に先立つ未実装条件
 
 - 実ブローカーで一貫して付番されたシーケンス・epoch/stream再起動識別・認証済み署名などがあり、その完全性を独立して検証できること。**業者が単調seqを提供しない場合は異なる方式が必要**。
