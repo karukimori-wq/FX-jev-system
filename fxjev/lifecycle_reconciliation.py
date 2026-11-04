@@ -140,7 +140,12 @@ def reconcile_late_demo_lifecycle(
             (order.client_id,order.account_id)).fetchall()
         if len(rows)!=len(proof.closes):
             raise SafetyError("close history is missing or has extra batches")
-        historical_remaining=previous
+        # Original close snapshots were taken against the original entry
+        # cumulative fill, not the latest revised entry total. We can replay
+        # that immutable close sequence after later entry-only revisions.
+        # Any closes added after an earlier revision do not fit that original
+        # sequence, so they must fail closed until a chronological journal exists.
+        historical_remaining=first[2]
         historical_closed=0
         for recorded,provided in zip(rows,proof.closes):
             if recorded!=(provided.close_order_id,provided.status.value,
@@ -161,6 +166,9 @@ def reconcile_late_demo_lifecycle(
                     or historical_remaining!=provided.recorded_remaining_quantity):
                 raise SafetyError("historical close balance chain is inconsistent")
 
+        previous_remaining=previous-historical_closed
+        if previous_remaining<0:
+            raise SafetyError("recorded closes exceed previous entry fill total")
         position=db.execute("""SELECT account_id,strategy_id,run_id,mode,
             broker_entry_order_id,opened_quantity,remaining_quantity
             FROM position_balances WHERE client_id=?""",
@@ -168,10 +176,10 @@ def reconcile_late_demo_lifecycle(
         if (not position or position!=(
                 order.account_id,order.strategy_id,order.run_id,
                 order.mode.value,order.broker_order_id,previous,
-                historical_remaining)):
+                previous_remaining)):
             raise SafetyError("current position conflicts with stored close history")
         expected_remaining=new_total-historical_closed
-        if (expected_remaining<historical_remaining
+        if (expected_remaining<previous_remaining
                 or net.open_quantity!=expected_remaining):
             raise SafetyError("new entry fills and close history disagree with net position")
 
@@ -238,7 +246,7 @@ def reconcile_late_demo_lifecycle(
             remaining_quantity=? WHERE client_id=? AND opened_quantity=?
             AND remaining_quantity=?""",
             (new_total,expected_remaining,order.client_id,previous,
-             historical_remaining)).rowcount
+             previous_remaining)).rowcount
         if changed!=1:
             raise SafetyError("position changed during mock lifecycle review")
         changed=db.execute("""UPDATE orders SET filled_quantity=?
@@ -252,7 +260,7 @@ def reconcile_late_demo_lifecycle(
              reviewer_id,review_ref,evidence_sha256,reviewed_at_ns)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
             (order.client_id,order.account_id,order.mode.value,previous,
-             new_total,historical_closed,historical_remaining,
+             new_total,historical_closed,previous_remaining,
              expected_remaining,reviewer_id,review_ref,digest,now))
         db.execute("""DELETE FROM mock_event_holds
             WHERE client_id=? AND account_id=? AND mode=?""",
