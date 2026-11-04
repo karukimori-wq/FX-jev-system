@@ -13,6 +13,7 @@ import time
 
 from .ledger import Ledger, Mode, OrderStatus, SafetyError
 from .reconciliation import ReconciliationProof, _validate
+from .execution_history import record_late_entry
 
 
 def reconcile_late_demo_fill(
@@ -123,6 +124,9 @@ def reconcile_late_demo_fill(
             except sqlite3.IntegrityError as exc:
                 raise SafetyError("position identity conflict") from exc
 
+        record_late_entry(
+            db,proof,expected_previous=previous,evidence_hash=digest,
+            kind="late-no-close",recorded_at_ns=now)
         result=db.execute("""UPDATE orders SET filled_quantity=?
             WHERE client_id=? AND filled_quantity=? AND status=?""",
             (new_total,order.client_id,previous,order.status.value)).rowcount
