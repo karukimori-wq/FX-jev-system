@@ -48,6 +48,22 @@ def verify_entry_lineage(db, client_id, *, expected_total=None):
         WHERE client_id=? ORDER BY version""",(client_id,)).fetchall()
     if not chain or chain[0][0]!=1 or chain[0][1]!="initial":
         raise SafetyError("legacy or missing entry execution history: manual quarantine required")
+    original=db.execute("""SELECT broker_order_id,filled_quantity,evidence_sha256
+        FROM reconciliation_audit WHERE client_id=?""",(client_id,)).fetchone()
+    owner=db.execute("""SELECT account_id,mode,filled_quantity
+        FROM orders WHERE client_id=?""",(client_id,)).fetchone()
+    if (not original or not owner or
+            original[1]!=chain[0][2] or original[2]!=chain[0][3]):
+        raise SafetyError("genesis entry evidence does not match original audit")
+    if db.execute("""SELECT 1 FROM entry_executions
+        WHERE client_id=? AND (account_id!=? OR mode!=? OR broker_order_id!=?)
+        LIMIT 1""",(client_id,owner[0],owner[1],original[0])).fetchone():
+        raise SafetyError("entry execution ownership differs from original audit")
+    if db.execute("""SELECT 1 FROM entry_executions e
+        INNER JOIN position_close_executions c
+        ON e.account_id=c.account_id AND e.execution_id=c.execution_id
+        WHERE e.client_id=? LIMIT 1""",(client_id,)).fetchone():
+        raise SafetyError("entry and close execution IDs collide")
     prev="0"*64
     for expected_version,(version,kind,total,evidence,snapshot,previous,digest) in enumerate(chain,1):
         if (version!=expected_version or previous!=prev or
@@ -62,6 +78,7 @@ def verify_entry_lineage(db, client_id, *, expected_total=None):
     all_rows=_rows(db,client_id)
     if (any(x[4]<1 or x[4]>len(chain) for x in all_rows)
             or sum(x[2] for x in all_rows)!=current
+            or owner[2]!=current
             or (expected_total is not None and current!=expected_total)):
         raise SafetyError("entry execution ledger does not match cumulative position")
     return len(chain),prev,current
