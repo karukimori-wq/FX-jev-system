@@ -99,8 +99,20 @@ def ingest_mock_fill(ledger: Ledger, notice: FillNotice) -> str:
     """
     digest=_digest_notice(notice)
     now=time.time_ns()
+    bypass=False
     with ledger._tx() as db:
-        status,conflict=_ingest_mock_fill_tx(db,ledger,notice,digest,now)
+        if db.execute("""SELECT 1 FROM mock_feed_streams
+            WHERE account_id=? AND mode=?""",
+            (notice.account_id,notice.mode.value)).fetchone():
+            # Once a sequenced stream exists, bare fills cannot evade it.
+            _hold(db,ledger,notice.account_id,notice.mode,
+                  "__feed__:unsequenced",
+                  "unsequenced fill attempted on active mock feed",now)
+            bypass=True
+        else:
+            status,conflict=_ingest_mock_fill_tx(db,ledger,notice,digest,now)
+    if bypass:
+        raise SafetyError("sequenced feed required; unsequenced attempt quarantined")
     if conflict:
         raise SafetyError("conflicting mock execution ID quarantined and audited")
     return status
