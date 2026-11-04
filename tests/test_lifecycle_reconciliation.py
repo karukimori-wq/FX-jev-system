@@ -174,6 +174,48 @@ class LifecycleReviewTests(unittest.TestCase):
         self.assertEqual(self.l.position_remaining("entry"),4)
         self.assertEqual(self.l.account_exposure("A",Mode.DEMO),4)
 
+    def test_two_sequential_late_reviews_keep_original_close_audit(self):
+        self.scenario()
+        self.review()
+        original=self.rows("""SELECT close_order_id,quantity,remaining_quantity
+             FROM position_close_batches ORDER BY rowid""")
+        self.late(quantity=1,execution="late2")
+        p=self.review_proof(total=9,new=1,current=6)
+        now=time.time_ns()
+        entry=replace(p.entry,fills=(
+            BrokerFill("broker-entry","exec-entry",6,now-4_000_000),
+            BrokerFill("broker-entry","late",2,now-3_000_000),
+            BrokerFill("broker-entry","late2",1,now-2_000_000)))
+        self.review(replace(p,entry=entry))
+        self.assertEqual(self.l.position_remaining("entry"),6)
+        self.assertEqual(self.l.get("entry").filled_quantity,9)
+        self.assertEqual(self.rows("""SELECT version,filled_quantity
+             FROM entry_revision_chain ORDER BY version"""),
+                         [(1,6),(2,8),(3,9)])
+        self.assertEqual(self.rows("""SELECT close_order_id,quantity,remaining_quantity
+             FROM position_close_batches ORDER BY rowid"""),original)
+        self.assertEqual(self.rows("""SELECT old_entry_total,new_entry_total,
+             historical_closed_quantity,old_open_quantity,new_open_quantity
+             FROM mock_lifecycle_revisions ORDER BY revision_id"""),
+                         [(6,8,3,3,5),(8,9,3,5,6)])
+
+    def test_post_revision_close_requires_full_chronological_replay(self):
+        self.scenario()
+        self.review()
+        self.close(1,4,"close-after-first-revision")
+        self.late(quantity=1,execution="late2")
+        p=self.review_proof(total=9,new=1,current=5)
+        now=time.time_ns()
+        entry=replace(p.entry,fills=(
+            BrokerFill("broker-entry","exec-entry",6,now-4_000_000),
+            BrokerFill("broker-entry","late",2,now-3_000_000),
+            BrokerFill("broker-entry","late2",1,now-2_000_000)))
+        with self.assertRaises(SafetyError):
+            self.review(replace(p,entry=entry))
+        self.assertEqual(self.l.position_remaining("entry"),4)
+        self.assertTrue(self.rows(
+            "SELECT 1 FROM mock_event_holds WHERE client_id='entry'"))
+
     def test_lifecycle_revision_persists_original_and_late_execution_ids(self):
         self.scenario()
         self.review()
