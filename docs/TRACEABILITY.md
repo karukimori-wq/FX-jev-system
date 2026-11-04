@@ -16,6 +16,7 @@
 | 初回エントリー約定ID保存・追加訂正ハッシュ連鎖・旧DB隔離 | P0約定履歴・GitHub Issue #6 | `fxjev/execution_history.py`、`fxjev/reconciliation.py`、`fxjev/late_reconciliation.py`、`fxjev/lifecycle_reconciliation.py`、`fxjev/positions.py`、`docs/EXECUTION_HISTORY_P0.md` | `tests/test_execution_history.py`、`tests/test_lifecycle_reconciliation.py` | 24件追加・CI合計238件。旧DB履歴補完なし。未認証・署名なしのSHA連鎖に限定 |
 | DEMO会計処理順のエントリー訂正・決済・再起動リプレイ | P0会計時系列/Issue #6 | `fxjev/accounting_journal.py`、`fxjev/positions.py`、`fxjev/lifecycle_reconciliation.py`、`docs/ACCOUNTING_JOURNAL_P0.md` | `tests/test_accounting_journal.py`、`tests/test_lifecycle_reconciliation.py` | 16件の新規検証・全254テスト成功。実ブローカー発生時刻の真実性は未保証 |
 | 模擬イベント受信の欠番・再送・順不同と高水位監査・持続的停止 | P0受信監査/Issue #6 | `fxjev/sequenced_feed.py`、`fxjev/events.py`、`fxjev/ledger.py`、`fxjev/startup.py`、`docs/SEQUENCED_FEED_P0.md` | `tests/test_sequenced_feed.py`、`tests/test_mock_events.py` | 24件の追加検証、全278テスト成功。番号/高水位は未認証モックであり、実ブローカーの完全性保証なし |
+| 連番管理導入前の旧イベント隔離・受信欠番診断（解除不可） | P0イベント受信監査・Issue #6 | `fxjev/sequenced_feed.py`、`fxjev/feed_inspection.py`、`docs/FEED_INSPECTION_P0.md` | `tests/test_feed_inspection.py` | 18件追加、計296テスト成功。真のブローカー連番や完全性を保証しない |
 | ブローカー送信との原子性・遅延増分約定・複数ホスト | P0安全上の未検証事項 | 未実装 | 未実施 | 本番ブロッカー |
 | 起動時ゲート・起動世代の失効・設定変更時の再承認 | Q304–306、Q310–312、GitHub Issue #5 | `fxjev/startup.py`、`fxjev/demo_service.py`、`fxjev/ledger.py`、`docs/STARTUP_GATE_P0.md` | `tests/test_startup_gate.py` | デモ専用モック実装・CI検証。管理者認証と実注文入口は未実装 |
 | 管理者承認・監査UI・本番保護 | Q310–312など | 未完成 | なし | 未実装 |
