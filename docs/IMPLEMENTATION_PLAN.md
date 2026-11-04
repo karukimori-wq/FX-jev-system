@@ -96,3 +96,15 @@ GitHub Issue [#5](https://github.com/karukimori-wq/FX-jev-system/issues/5) は�
 - [ ] 署名/外部不変台帳による真正な証跡、ブローカーAPIと管理者認証済み承認、実口座・実FXリスク検証
 
 [初回約定ID保存とハッシュ履歴の限界](EXECUTION_HISTORY_P0.md) / [CI: 238 tests](https://github.com/karukimori-wq/FX-jev-system/actions/runs/41761003419)
+
+## P0初回約定IDと改訂ハッシュ履歴（2026-11-04）
+
+- [x] 初回照合の全約定ID・数量・記録時刻をentry_executionsへ原子的に保存
+- [x] entry_revision_chainでversionごとの累計・全IDスナップショット・前versionのSHA連鎖を検証
+- [x] ID欠落・数量改変・重複/決済ID衝突・原監査改変・旧DB履歴欠損では追加訂正/模擬決済のリスク解放を拒否
+- [x] 新しい追加約定訂正を複数回検証。過去決済バッチは不変
+- [x] 24ケース追加、GitHub Actionsで全238件成功
+- [ ] 訂正と追加決済が交互に発生する全時系列の厳密な再構成
+- [ ] 署名付き・認証済みのブローカー全約定証拠、管理者本人認証、資金/証拠金、実建玉保護
+
+仕様: [EXECUTION_HISTORY_P0.md](EXECUTION_HISTORY_P0.md) / 検証: https://github.com/karukimori-wq/FX-jev-system/actions/runs/41761003419
