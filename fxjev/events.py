@@ -106,10 +106,20 @@ def ingest_mock_fill(ledger: Ledger, notice: FillNotice) -> str:
     now=time.time_ns()
     bypass=False
     with ledger._tx() as db:
-        if db.execute("""SELECT 1 FROM mock_feed_streams
+        stream=db.execute("""SELECT stream_id FROM mock_feed_streams
             WHERE account_id=? AND mode=?""",
-            (notice.account_id,notice.mode.value)).fetchone():
+            (notice.account_id,notice.mode.value)).fetchone()
+        if stream:
             # Once a sequenced stream exists, bare fills cannot evade it.
+            # Persist an independent alarm in addition to the event hold,
+            # so clearing a hold cannot silently authorize restart.
+            db.execute("""UPDATE mock_feed_streams SET has_alarm=1
+                WHERE account_id=? AND mode=?""",
+                (notice.account_id,notice.mode.value))
+            db.execute("""INSERT INTO mock_feed_alerts
+                (account_id,mode,stream_id,sequence,kind,payload_sha256,
+                 detected_at_ns) VALUES(?,?,?,0,'unsequenced-bypass',?,?)""",
+                (notice.account_id,notice.mode.value,stream[0],digest,now))
             _hold(db,ledger,notice.account_id,notice.mode,
                   "__feed__:unsequenced",
                   "unsequenced fill attempted on active mock feed",now)
