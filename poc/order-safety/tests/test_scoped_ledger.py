@@ -329,3 +329,32 @@ class ScopedLedgerTests(unittest.TestCase):
             worker=MockWorker(ledger,object(),mode=Mode.LIVE)
             self.assertEqual([],worker.maintenance_tick())
             with ledger._connect() as db:self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='demo'").fetchone())
+
+    def test_missing_deadline_maintenance_stops_cancels_and_preserves_close(self):
+        from fx_poc.worker import MockWorker
+        class Broker:
+            def __init__(self):self.calls=0
+            def submit_open(self,order):return 'ext'
+            def cancel_open(self,order):self.calls+=1
+        with TemporaryDirectory() as tmp:
+            path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
+            ledger.add_run(Run('a','L',Mode.LIVE,100))
+            ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
+            broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE)
+            worker.approve_resume('a','operator','legacy review',worker.review_token('a'))
+            engine=worker.run_engine('a');engine.submit_entry('sent','USD_JPY',Side.BUY,10)
+            engine.scope.ingest_entry_fill('sent','fill',4)
+            engine.scope.reserve('unsent','USD_JPY',Side.BUY,2)
+            self.assertTrue(worker.maintenance_tick()[0]['expired'])
+            self.assertEqual(1,broker.calls)
+            self.assertEqual('CANCELED',ledger.get_order(engine.scope.identifier('decision','unsent')).state)
+            self.assertEqual(10,ledger.live_exposure('L'))
+            self.assertTrue(engine.scope.reserve_close('close',engine.scope.filled_position('fill'),4))
+            with self.assertRaises(SafetyError):engine.scope.reserve('new','USD_JPY',Side.BUY,1)
+            with ledger._connect() as db:
+                self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='demo'").fetchone())
+                self.assertEqual((1,),db.execute("SELECT active FROM stop_reasons WHERE run_id='a' AND reason='DEADLINE_REQUIRED'").fetchone())
+            restarted=MockWorker(SQLiteLedger(path),broker,mode=Mode.LIVE)
+            self.assertEqual(0,restarted.maintenance_tick()[0]['entry_cancels'])
+            self.assertEqual(1,broker.calls)
+            with self.assertRaises(SafetyError):restarted.approve_resume('a','operator','retry',restarted.review_token('a'))

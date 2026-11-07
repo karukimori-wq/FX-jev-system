@@ -98,7 +98,7 @@ class MockWorker:
         results = []
         for (run_id,) in runs:
             engine = self.run_engine(run_id)
-            expired = engine.enforce_deadline()
+            expired = self.ledger.expire_run(run_id, require_deadline=True)
             entries = engine.process_cancellations()
             closes = engine.process_close_cancellations()
             results.append(dict(run_id=run_id, expired=expired,

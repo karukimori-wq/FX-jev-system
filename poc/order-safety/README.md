@@ -262,3 +262,20 @@ is conservatively migrated to both modes. Existing live multi-run caps remain.
 quarantine blocking live; expired-run acceptance remains true (not addressed).
 Global ID keys, shared local DB/dispatch lock, P&L and real broker infrastructure
 remain outside complete demo/live isolation. Issue #1 stays open.
+
+## v0.40.0: missing deadlines fail closed in maintenance
+
+Worker maintenance now treats an absent deadline as DEADLINE_REQUIRED. Under the
+same dispatch gate and SQLite transaction it disables the run, cancels unsent
+entries and queues cancellation of sent entries. Repeated ticks/restarts do not
+resend acknowledged cancellations or release uncertain capacity. Existing
+positions remain available for close, and a mode-bound worker leaves the other
+mode untouched. The durable stop blocks reviewed resume.
+
+This is a cooperative maintenance safeguard, not mandatory deadline validation
+on every legacy submission: old add_run/reserve/resume APIs still accept absent
+deadlines until maintenance. The host must schedule ticks; configuring a missing
+deadline and audited stop clearance remain future work. The result field
+`expired` means deadline policy stopped the run, including missing deadlines.
+
+Validation: 110 mock tests pass; evidence/tests-v0.40.txt records the run.
