@@ -1,0 +1,5 @@
+# v0.32 run別取消処理
+
+RunEngine.stop(reason)は対象runの新規停止と既存の取消要求作成を呼ぶ。process_cancellations()は対象runのPENDING新規取消のみ取得し、所有者確認後send_cancelの永続SENDING・dispatch gate・demo送信隔離を使う。他runのキューを消費しない。旧ID注文もrun所有が確認できれば処理する。
+
+92テスト成功。2つのlive runとdemoの同一元IDで取消を独立処理。ACKだけでは数量枠を解放せず、UNKNOWNは再接続後も再送しない。決済注文の取消・照合APIのrun境界統合、旧API強制移行、成績分離は未完了。実口座接続なし。
