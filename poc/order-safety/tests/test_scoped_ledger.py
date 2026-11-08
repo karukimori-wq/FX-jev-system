@@ -376,3 +376,14 @@ class ScopedLedgerTests(unittest.TestCase):
             worker.approve_resume('future','operator','review',worker.review_token('future'))
             with ledger._connect() as db:
                 self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='future'").fetchone())
+
+    def test_legacy_resume_requires_future_deadline_by_default(self):
+        from datetime import datetime,timezone
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            for run,deadline in [('missing',None),('past',datetime(2000,1,1,tzinfo=timezone.utc)),('future',datetime(2100,1,1,tzinfo=timezone.utc))]:
+                ledger.add_run(Run(run,'L',Mode.LIVE,100,enabled=False,ends_at=deadline))
+            for run in ('missing','past'):
+                with self.assertRaisesRegex(SafetyError,'deadline'):ledger.approve_mock_resume(run,'operator','review')
+                with ledger._connect() as db:self.assertEqual((0,),db.execute('SELECT enabled FROM runs WHERE run_id=?',(run,)).fetchone())
+            ledger.approve_mock_resume('future','operator','review')

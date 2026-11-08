@@ -368,10 +368,15 @@ class SQLiteLedger:
             db.commit()
 
     @staticmethod
-    def _check_resume_risks(db, run_id, *, allow_startup_review=False):
+    def _check_resume_risks(db, run_id, *, allow_startup_review=False, require_deadline=True):
         """Shared predicate; caller must hold dispatch gate and write transaction."""
         if not db.execute("SELECT 1 FROM runs WHERE run_id=?", (run_id,)).fetchone():
             raise SafetyError("unknown run")
+        if require_deadline:
+            if not db.execute("SELECT 1 FROM run_deadlines WHERE run_id=?", (run_id,)).fetchone():
+                raise SafetyError("run deadline required")
+            if SQLiteLedger._deadline_expired(db, run_id):
+                raise SafetyError("run deadline expired")
         scope = "SELECT run_id FROM runs WHERE (logic_id,mode)=(SELECT logic_id,mode FROM runs WHERE run_id=?)"
         for table in ("orders", "closes"):
             if db.execute(f"SELECT 1 FROM {table} WHERE run_id IN ({scope}) AND state IN ('SUBMITTING','UNKNOWN','CANCEL_PENDING')", (run_id,)).fetchone():
@@ -390,13 +395,13 @@ class SQLiteLedger:
             if table in existing and db.execute(f"SELECT 1 FROM {table} WHERE {condition}", (run_id,)).fetchone():
                 raise SafetyError("unresolved logic evidence prevents resume")
 
-    def approve_mock_resume(self, run_id: str, actor: str, reason: str) -> None:
+    def approve_mock_resume(self, run_id: str, actor: str, reason: str, *, require_deadline=True) -> None:
         """Local mock gate only; not a substitute for live account reconciliation."""
         if not actor.strip() or not reason.strip():
             raise SafetyError("actor and reason required")
         with self.dispatch_gate(), self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            self._check_resume_risks(db, run_id)
+            self._check_resume_risks(db, run_id, require_deadline=require_deadline)
             has_modes = db.execute("SELECT 1 FROM sqlite_master WHERE name='worker_review_generations'").fetchone()
             if has_modes:
                 needs_review = db.execute("SELECT 1 FROM worker_review_generations WHERE mode=(SELECT mode FROM runs WHERE run_id=?)", (run_id,)).fetchone()

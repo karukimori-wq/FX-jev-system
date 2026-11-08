@@ -167,14 +167,14 @@ class DurableAcceptanceTests(unittest.TestCase):
         self.ledger.apply_close_fill("pc", "pf", 2_000)
         self.ledger.transition_close("pc", "UNKNOWN")
         with self.assertRaises(SafetyError):
-            self.ledger.approve_mock_resume("run-A", "operator", "reviewed")
+            self.ledger.approve_mock_resume("run-A", "operator", "reviewed", require_deadline=False)
         evidence = dict(close_id="pc", run_id="run-A", position_id="partial", quantity=5_000, filled=3_000, state="PARTIAL", external_id="ep")
         self.assertFalse(self.ledger.reconcile_close("pc", [evidence]))
         evidence["filled"] = 2_000
         self.assertTrue(self.ledger.reconcile_close("pc", [evidence]))
         with self.ledger._connect() as db:
             self.assertEqual(db.execute("SELECT enabled FROM runs WHERE run_id='run-A'").fetchone()[0], 0)
-        self.ledger.approve_mock_resume("run-A", "operator", "mock evidence reviewed")
+        self.ledger.approve_mock_resume("run-A", "operator", "mock evidence reviewed", require_deadline=False)
         self.assertTrue(SQLiteLedger(self.db_path).reserve(Intent("after-review", "run-A", "USD_JPY", Side.BUY, 1_000))[1])
 
     def test_multiple_stop_reasons_survive_restart_and_block_resume(self):
@@ -183,9 +183,9 @@ class DurableAcceptanceTests(unittest.TestCase):
         reopened = SQLiteLedger(self.db_path)
         reopened.clear_mock_stop("run-A", "DATA_FAILURE", "operator")
         with self.assertRaisesRegex(SafetyError, "stop reasons"):
-            reopened.approve_mock_resume("run-A", "operator", "reviewed")
+            reopened.approve_mock_resume("run-A", "operator", "reviewed", require_deadline=False)
         reopened.clear_mock_stop("run-A", "MANUAL", "operator")
-        reopened.approve_mock_resume("run-A", "operator", "all mock reasons cleared")
+        reopened.approve_mock_resume("run-A", "operator", "all mock reasons cleared", require_deadline=False)
 
     def test_startup_detects_submitting_without_resend(self):
         self.ledger.reserve(Intent("before-crash", "run-A", "USD_JPY", Side.BUY, 1_000))

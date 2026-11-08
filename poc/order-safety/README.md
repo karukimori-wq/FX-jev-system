@@ -297,3 +297,11 @@ Missing or expired deadlines reject approval before any startup stop is cleared.
 of older recovery scenarios use that flag. Maintenance always enforces missing
 and expired deadlines regardless of this compatibility flag. Direct ledger APIs
 still need consolidation; this is not yet a universal authorization boundary.
+
+## Shared resume deadline predicate
+
+Worker and legacy ledger resume now use the same transaction-local deadline
+predicate. Both require a future deadline by default. Explicit
+`require_deadline=False` remains a mock compatibility escape hatch; direct run
+creation and other low-level APIs are not production authorization boundaries.
+112 mock tests pass; evidence/tests-shared-deadline.txt records verification.

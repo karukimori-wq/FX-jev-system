@@ -107,6 +107,6 @@ class ModeIsolationTests(unittest.TestCase):
             db.execute("INSERT INTO worker_review_generation VALUES (1,5)")
         MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO, require_deadline=False)
         with self.assertRaisesRegex(SafetyError,'worker review token required'):
-            self.ledger.approve_mock_resume('live','tester','legacy bypass')
+            self.ledger.approve_mock_resume('live','tester','legacy bypass', require_deadline=False)
         with self.ledger._connect() as db:
             self.assertEqual([('demo',6),('live',5)],db.execute("SELECT * FROM worker_review_generations ORDER BY mode").fetchall())

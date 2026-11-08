@@ -281,7 +281,7 @@ class LogicLimitTests(unittest.TestCase):
             db.execute("UPDATE runs SET enabled=0 WHERE run_id='new'")
             db.execute("INSERT INTO orders(decision_id,run_id,logic_id,pair,side,quantity,state) VALUES ('risk','old','L','USD_JPY','BUY',10,'UNKNOWN')")
         with self.assertRaisesRegex(SafetyError, 'unresolved orders'):
-            self.ledger.approve_mock_resume('new', 'tester', 'legacy review')
+            self.ledger.approve_mock_resume('new', 'tester', 'legacy review', require_deadline=False)
         with self.ledger._connect() as db:
             self.assertEqual(0, db.execute("SELECT enabled FROM runs WHERE run_id='new'").fetchone()[0])
             self.assertIsNone(db.execute("SELECT 1 FROM sqlite_master WHERE name='resume_approvals'").fetchone())
@@ -291,13 +291,13 @@ class LogicLimitTests(unittest.TestCase):
             db.execute("INSERT INTO orders(decision_id,run_id,logic_id,pair,side,quantity,state) VALUES ('risk','old','L','USD_JPY','BUY',10,'CANCELED')")
             db.execute("INSERT INTO cancel_requests VALUES ('risk','review','UNKNOWN')")
         with self.assertRaisesRegex(SafetyError, 'unresolved logic evidence'):
-            self.ledger.approve_mock_resume('new', 'tester', 'review')
+            self.ledger.approve_mock_resume('new', 'tester', 'review', require_deadline=False)
         with self.ledger._connect() as db:
             db.execute("UPDATE cancel_requests SET status='CONFIRMED'")
             db.execute("CREATE TABLE late_entry_fills(execution_id TEXT PRIMARY KEY,decision_id TEXT,quantity INTEGER)")
             db.execute("INSERT INTO late_entry_fills VALUES ('late','risk',1)")
         with self.assertRaisesRegex(SafetyError, 'unresolved logic evidence'):
-            self.ledger.approve_mock_resume('new', 'tester', 'review')
+            self.ledger.approve_mock_resume('new', 'tester', 'review', require_deadline=False)
 
     def test_legacy_resume_cannot_bypass_worker_review_after_stop_clearance(self):
         from fx_poc.worker import MockWorker
@@ -305,7 +305,7 @@ class LogicLimitTests(unittest.TestCase):
         self.ledger.clear_mock_stop('new','STARTUP_REVIEW','tester')
         self.ledger.clear_mock_stop('old','STARTUP_REVIEW','tester')
         with self.assertRaisesRegex(SafetyError, 'worker review token required'):
-            self.ledger.approve_mock_resume('new','tester','legacy bypass')
+            self.ledger.approve_mock_resume('new','tester','legacy bypass', require_deadline=False)
         worker.approve_resume('new','tester','fresh review',worker.review_token('new'))
 
     def test_legacy_resume_rejects_other_run_stop_and_accepts_clear_state(self):
@@ -313,9 +313,9 @@ class LogicLimitTests(unittest.TestCase):
             db.execute("UPDATE runs SET enabled=0 WHERE run_id='new'")
             db.execute("INSERT INTO stop_reasons VALUES ('old','MANUAL',1)")
         with self.assertRaisesRegex(SafetyError, 'other stop reasons'):
-            self.ledger.approve_mock_resume('new','tester','review')
+            self.ledger.approve_mock_resume('new','tester','review', require_deadline=False)
         self.ledger.clear_mock_stop('old','MANUAL','tester')
-        self.ledger.approve_mock_resume('new','tester','resolved review')
+        self.ledger.approve_mock_resume('new','tester','resolved review', require_deadline=False)
         with self.ledger._connect() as db:
             self.assertEqual(1, db.execute("SELECT enabled FROM runs WHERE run_id='new'").fetchone()[0])
             self.assertEqual(1, db.execute("SELECT COUNT(*) FROM resume_approvals").fetchone()[0])
