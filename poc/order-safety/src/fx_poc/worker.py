@@ -8,7 +8,7 @@ from .models import Mode
 
 
 class MockWorker:
-    def __init__(self, ledger: SQLiteLedger, broker, *, mode: Mode | None = None, require_deadline: bool = False):
+    def __init__(self, ledger: SQLiteLedger, broker, *, mode: Mode | None = None, require_deadline: bool = True):
         self.mode = Mode(mode) if mode is not None else None
         self.require_deadline = require_deadline
         self.ledger = ledger

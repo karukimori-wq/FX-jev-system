@@ -229,7 +229,7 @@ class ScopedLedgerTests(unittest.TestCase):
             def submit_open(self,order):self.calls+=1;return 'ext'
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100);ledger.add_run(Run('a','L',Mode.LIVE,100));broker=Broker()
-            worker=MockWorker(ledger,broker,mode=Mode.LIVE);engine=worker.run_engine('a')
+            worker=MockWorker(ledger,broker,mode=Mode.LIVE, require_deadline=False);engine=worker.run_engine('a')
             with self.assertRaises(SafetyError):engine.submit_entry('d','USD_JPY',Side.BUY,1)
             self.assertEqual(0,broker.calls)
             worker.approve_resume('a','operator','review',worker.review_token('a'))
@@ -241,7 +241,7 @@ class ScopedLedgerTests(unittest.TestCase):
         from fx_poc.worker import MockWorker
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
-            worker=MockWorker(ledger,object(),mode=Mode.LIVE)
+            worker=MockWorker(ledger,object(),mode=Mode.LIVE, require_deadline=False)
             with self.assertRaisesRegex(SafetyError,'worker mode mismatch'):worker.run_engine('demo')
 
     def test_explicit_deadline_persists_and_rejects_expired_entry_but_allows_close(self):
@@ -311,7 +311,7 @@ class ScopedLedgerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
             ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
-            broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE)
+            broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE, require_deadline=False)
             worker.approve_resume('a','operator','review',worker.review_token('a'))
             worker.run_engine('a').submit_entry('d','USD_JPY',Side.BUY,10)
             with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
@@ -326,7 +326,7 @@ class ScopedLedgerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db')
             ledger.add_run(Run('demo','L',Mode.DEMO,0,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)),demo_quantity_limit=100)
-            worker=MockWorker(ledger,object(),mode=Mode.LIVE)
+            worker=MockWorker(ledger,object(),mode=Mode.LIVE, require_deadline=False)
             self.assertEqual([],worker.maintenance_tick())
             with ledger._connect() as db:self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='demo'").fetchone())
 
@@ -340,7 +340,7 @@ class ScopedLedgerTests(unittest.TestCase):
             path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
             ledger.add_run(Run('a','L',Mode.LIVE,100))
             ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
-            broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE)
+            broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE, require_deadline=False)
             worker.approve_resume('a','operator','legacy review',worker.review_token('a'))
             engine=worker.run_engine('a');engine.submit_entry('sent','USD_JPY',Side.BUY,10)
             engine.scope.ingest_entry_fill('sent','fill',4)
@@ -354,7 +354,7 @@ class ScopedLedgerTests(unittest.TestCase):
             with ledger._connect() as db:
                 self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='demo'").fetchone())
                 self.assertEqual((1,),db.execute("SELECT active FROM stop_reasons WHERE run_id='a' AND reason='DEADLINE_REQUIRED'").fetchone())
-            restarted=MockWorker(SQLiteLedger(path),broker,mode=Mode.LIVE)
+            restarted=MockWorker(SQLiteLedger(path),broker,mode=Mode.LIVE, require_deadline=False)
             self.assertEqual(0,restarted.maintenance_tick()[0]['entry_cancels'])
             self.assertEqual(1,broker.calls)
             with self.assertRaises(SafetyError):restarted.approve_resume('a','operator','retry',restarted.review_token('a'))
@@ -367,7 +367,7 @@ class ScopedLedgerTests(unittest.TestCase):
             ledger.add_run(Run('missing','L',Mode.LIVE,100))
             ledger.add_run(Run('past','L',Mode.LIVE,100,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)))
             ledger.add_run(Run('future','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
-            worker=MockWorker(ledger,object(),mode=Mode.LIVE,require_deadline=True)
+            worker=MockWorker(ledger,object(),mode=Mode.LIVE)
             for run in ('missing','past'):
                 with self.assertRaisesRegex(SafetyError,'deadline'):
                     worker.approve_resume(run,'operator','review',worker.review_token(run))

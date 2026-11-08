@@ -57,7 +57,7 @@ class ModeIsolationTests(unittest.TestCase):
             self.assertEqual(10,db.execute("SELECT quantity FROM positions WHERE position_id='demo-position'").fetchone()[0])
 
     def test_other_mode_quarantine_does_not_invalidate_or_block_review(self):
-        worker = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE)
+        worker = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE, require_deadline=False)
         token = worker.review_token('live')
         self.terminal_entry('demo')
         self.ledger.ingest_entry_fill('order-demo','demo-late',1)
@@ -65,7 +65,7 @@ class ModeIsolationTests(unittest.TestCase):
         worker.approve_resume('live','tester','isolated review',token)
 
     def test_other_mode_cancel_unknown_does_not_block_resume(self):
-        worker = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE)
+        worker = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE, require_deadline=False)
         token = worker.review_token('live')
         self.terminal_entry('demo')
         with self.ledger._connect() as db:
@@ -74,12 +74,12 @@ class ModeIsolationTests(unittest.TestCase):
         worker.approve_resume('live','tester','review',token)
 
     def test_mode_startup_does_not_stop_or_invalidate_other_mode(self):
-        live = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE)
+        live = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE, require_deadline=False)
         token = live.review_token('live')
-        demo = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO)
+        demo = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO, require_deadline=False)
         self.assertEqual(token,live.review_token('live'))
         live.approve_resume('live','tester','review',token)
-        MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO)
+        MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO, require_deadline=False)
         with self.ledger._connect() as db:
             self.assertEqual(1,db.execute("SELECT enabled FROM runs WHERE run_id='live'").fetchone()[0])
         with self.assertRaisesRegex(SafetyError,'worker mode mismatch'):
@@ -88,16 +88,16 @@ class ModeIsolationTests(unittest.TestCase):
             demo.submit(self.intent('live'))
 
     def test_live_limit_changes_do_not_invalidate_demo_review(self):
-        demo = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO)
+        demo = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO, require_deadline=False)
         token = demo.review_token('demo')
         self.ledger.set_logic_limit('L',90)
         self.assertEqual(token,demo.review_token('demo'))
         demo.approve_resume('demo','tester','review',token)
 
     def test_same_mode_new_startup_still_invalidates_review(self):
-        live = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE)
+        live = MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE, require_deadline=False)
         token = live.review_token('live')
-        MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE)
+        MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.LIVE, require_deadline=False)
         with self.assertRaisesRegex(SafetyError,'stale'):
             live.approve_resume('live','tester','old',token)
 
@@ -105,7 +105,7 @@ class ModeIsolationTests(unittest.TestCase):
         with self.ledger._connect() as db:
             db.execute("CREATE TABLE worker_review_generation(id INTEGER PRIMARY KEY,generation INTEGER)")
             db.execute("INSERT INTO worker_review_generation VALUES (1,5)")
-        MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO)
+        MockWorker(self.ledger,ForbiddenBroker(),mode=Mode.DEMO, require_deadline=False)
         with self.assertRaisesRegex(SafetyError,'worker review token required'):
             self.ledger.approve_mock_resume('live','tester','legacy bypass')
         with self.ledger._connect() as db:

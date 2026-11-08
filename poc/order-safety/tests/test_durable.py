@@ -199,7 +199,7 @@ class DurableAcceptanceTests(unittest.TestCase):
 
     def test_worker_startup_review_and_send_flow(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, self.broker)
+        worker = MockWorker(self.ledger, self.broker, require_deadline=False)
         intent = Intent("worker-entry", "run-A", "USD_JPY", Side.BUY, 1_000)
         with self.assertRaisesRegex(SafetyError, "stopped"):
             worker.submit(intent)
@@ -212,7 +212,7 @@ class DurableAcceptanceTests(unittest.TestCase):
         self.ledger.clear_mock_stop("run-A", "DATA_FAILURE", "operator")
         worker.approve_resume("run-A", "operator", "mock review", worker.review_token("run-A"))
         self.assertEqual(worker.submit(intent).state, OrderState.OPEN)
-        restarted = MockWorker(SQLiteLedger(self.db_path), self.broker)
+        restarted = MockWorker(SQLiteLedger(self.db_path), self.broker, require_deadline=False)
         with self.assertRaisesRegex(SafetyError, "stopped"):
             restarted.submit(Intent("after-restart", "run-A", "USD_JPY", Side.BUY, 1_000))
         self.assertEqual(self.broker.submit_count, 1)

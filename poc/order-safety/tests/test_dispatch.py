@@ -409,7 +409,7 @@ class DispatchTests(unittest.TestCase):
         from contextlib import contextmanager
         from fx_poc.worker import MockWorker
         from fx_poc.engine import SafetyError
-        worker = MockWorker(self.ledger, self.broker)
+        worker = MockWorker(self.ledger, self.broker, require_deadline=False)
         token = worker.review_token('r')
         waiting = Event()
         original_gate = self.ledger.dispatch_gate
@@ -436,9 +436,9 @@ class DispatchTests(unittest.TestCase):
     def test_new_worker_start_invalidates_identical_state_review(self):
         from fx_poc.worker import MockWorker
         from fx_poc.engine import SafetyError
-        worker = MockWorker(self.ledger,self.broker)
+        worker = MockWorker(self.ledger,self.broker, require_deadline=False)
         old_token = worker.review_token('r')
-        reopened = MockWorker(SQLiteLedger(self.path),self.broker)
+        reopened = MockWorker(SQLiteLedger(self.path),self.broker, require_deadline=False)
         with self.assertRaisesRegex(SafetyError, 'stale'):
             reopened.approve_resume('r','operator','old review',old_token)
         reopened.approve_resume('r','operator','fresh review',reopened.review_token('r'))
@@ -447,7 +447,7 @@ class DispatchTests(unittest.TestCase):
 
     def test_stop_after_resume_blocks_new_dispatch(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger,self.broker)
+        worker = MockWorker(self.ledger,self.broker, require_deadline=False)
         worker.approve_resume('r','operator','review',worker.review_token('r'))
         self.ledger.reserve(self.intent)
         SQLiteLedger(self.path).stop_run('r')

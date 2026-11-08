@@ -149,7 +149,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_limit_change_invalidates_worker_review(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         token = worker.review_token('new')
         self.ledger.set_logic_limit('L', 90)
         with self.assertRaisesRegex(SafetyError, 'stale'):
@@ -157,7 +157,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_other_run_reservation_invalidates_review(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         token = worker.review_token('new')
         with self.ledger._connect() as db:
             db.execute("UPDATE runs SET enabled=1 WHERE run_id='old'")
@@ -170,7 +170,7 @@ class LogicLimitTests(unittest.TestCase):
         with self.ledger._connect() as db:
             db.execute("INSERT INTO positions VALUES ('p','old',50)")
             db.execute("INSERT INTO closes(close_id,run_id,position_id,quantity,state) VALUES ('c','old','p',10,'OPEN')")
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         token = worker.review_token('new')
         with self.ledger._connect() as db:
             db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
@@ -180,7 +180,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_unrelated_logic_does_not_invalidate_review(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         token = worker.review_token('new')
         self.ledger.set_logic_limit('other-logic', 10)
         self.ledger.add_run(Run('unrelated', 'other-logic', Mode.LIVE, 10))
@@ -192,7 +192,7 @@ class LogicLimitTests(unittest.TestCase):
         from fx_poc.worker import MockWorker
         with self.ledger._connect() as db:
             db.execute("INSERT INTO orders(decision_id,run_id,logic_id,pair,side,quantity,state) VALUES ('d','old','L','USD_JPY','BUY',10,'CANCELED')")
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         token = worker.review_token('new')
         with self.ledger._connect() as db:
             db.execute("CREATE TABLE late_entry_fills(execution_id TEXT PRIMARY KEY,decision_id TEXT,quantity INTEGER)")
@@ -207,7 +207,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_latest_review_rejects_other_run_unresolved_states_atomically(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         for state in ('SUBMITTING', 'UNKNOWN', 'CANCEL_PENDING'):
             with self.subTest(state=state):
                 with self.ledger._connect() as db:
@@ -221,7 +221,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_latest_review_rejects_other_run_stop(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         with self.ledger._connect() as db:
             db.execute("INSERT INTO stop_reasons VALUES ('old','MANUAL_REVIEW',1)")
         with self.assertRaisesRegex(SafetyError, 'other stop reasons'):
@@ -229,7 +229,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_latest_review_rejects_cancel_unknown_and_quarantine(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         with self.ledger._connect() as db:
             db.execute("INSERT INTO orders(decision_id,run_id,logic_id,pair,side,quantity,state) VALUES ('risk','old','L','USD_JPY','BUY',10,'CANCELED')")
             db.execute("INSERT INTO cancel_requests VALUES ('risk','review','UNKNOWN')")
@@ -244,7 +244,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_resolved_other_run_allows_resume(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         with self.ledger._connect() as db:
             db.execute("INSERT INTO orders(decision_id,run_id,logic_id,pair,side,quantity,state) VALUES ('risk','old','L','USD_JPY','BUY',10,'CANCELED')")
             db.execute("INSERT INTO cancel_requests VALUES ('risk','review','CONFIRMED')")
@@ -255,7 +255,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_latest_review_rejects_other_run_close_risks(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         with self.ledger._connect() as db:
             db.execute("INSERT INTO positions VALUES ('p','old',50)")
             db.execute("INSERT INTO closes(close_id,run_id,position_id,quantity,state) VALUES ('c','old','p',10,'CANCELED')")
@@ -301,7 +301,7 @@ class LogicLimitTests(unittest.TestCase):
 
     def test_legacy_resume_cannot_bypass_worker_review_after_stop_clearance(self):
         from fx_poc.worker import MockWorker
-        worker = MockWorker(self.ledger, ForbiddenBroker())
+        worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         self.ledger.clear_mock_stop('new','STARTUP_REVIEW','tester')
         self.ledger.clear_mock_stop('old','STARTUP_REVIEW','tester')
         with self.assertRaisesRegex(SafetyError, 'worker review token required'):

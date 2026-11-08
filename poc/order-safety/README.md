@@ -288,3 +288,12 @@ the dispatch gate and write transaction before clearing startup stops or enablin
 the run. Future deadlines permit the existing evidence review. The flag defaults
 to False for compatibility; callers must opt in. This does not yet enforce the
 policy on all legacy add_run/resume APIs. 111 mock tests pass.
+
+## Default deadline validation on worker resume
+
+Worker startup/resume review now requires a configured future deadline by default.
+Missing or expired deadlines reject approval before any startup stop is cleared.
+`require_deadline=False` explicitly selects legacy compatibility behavior; tests
+of older recovery scenarios use that flag. Maintenance always enforces missing
+and expired deadlines regardless of this compatibility flag. Direct ledger APIs
+still need consolidation; this is not yet a universal authorization boundary.
