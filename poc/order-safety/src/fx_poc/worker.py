@@ -8,8 +8,9 @@ from .models import Mode
 
 
 class MockWorker:
-    def __init__(self, ledger: SQLiteLedger, broker, *, mode: Mode | None = None):
+    def __init__(self, ledger: SQLiteLedger, broker, *, mode: Mode | None = None, require_deadline: bool = False):
         self.mode = Mode(mode) if mode is not None else None
+        self.require_deadline = require_deadline
         self.ledger = ledger
         self.engine = DurableEngine(ledger, broker)
         self.startup_findings = ledger.startup_scan(self.mode)
@@ -73,6 +74,11 @@ class MockWorker:
             db.execute("BEGIN IMMEDIATE")
             if self._snapshot(db, run_id) != reviewed_token:
                 raise SafetyError("review is stale")
+            if self.require_deadline:
+                if not db.execute("SELECT 1 FROM run_deadlines WHERE run_id=?", (run_id,)).fetchone():
+                    raise SafetyError("run deadline required")
+                if self.ledger._deadline_expired(db, run_id):
+                    raise SafetyError("run deadline expired")
             self.ledger._check_resume_risks(db, run_id, allow_startup_review=True)
             db.execute("UPDATE stop_reasons SET active=0 WHERE run_id=? AND reason='STARTUP_REVIEW'", (run_id,))
             db.execute("CREATE TABLE IF NOT EXISTS worker_approvals (id INTEGER PRIMARY KEY, run_id TEXT, actor TEXT, reason TEXT, reviewed_token TEXT, approved_at TEXT DEFAULT CURRENT_TIMESTAMP)")

@@ -279,3 +279,12 @@ deadline and audited stop clearance remain future work. The result field
 `expired` means deadline policy stopped the run, including missing deadlines.
 
 Validation: 110 mock tests pass; evidence/tests-v0.40.txt records the run.
+
+## Strict worker resume deadline policy
+
+`MockWorker(..., require_deadline=True)` rejects reviewed startup/resume when the
+requested run has no deadline or its deadline has passed. Validation runs under
+the dispatch gate and write transaction before clearing startup stops or enabling
+the run. Future deadlines permit the existing evidence review. The flag defaults
+to False for compatibility; callers must opt in. This does not yet enforce the
+policy on all legacy add_run/resume APIs. 111 mock tests pass.

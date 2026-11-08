@@ -358,3 +358,21 @@ class ScopedLedgerTests(unittest.TestCase):
             self.assertEqual(0,restarted.maintenance_tick()[0]['entry_cancels'])
             self.assertEqual(1,broker.calls)
             with self.assertRaises(SafetyError):restarted.approve_resume('a','operator','retry',restarted.review_token('a'))
+
+    def test_strict_worker_rejects_missing_and_expired_deadlines_before_resume(self):
+        from datetime import datetime,timezone
+        from fx_poc.worker import MockWorker
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            ledger.add_run(Run('missing','L',Mode.LIVE,100))
+            ledger.add_run(Run('past','L',Mode.LIVE,100,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)))
+            ledger.add_run(Run('future','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            worker=MockWorker(ledger,object(),mode=Mode.LIVE,require_deadline=True)
+            for run in ('missing','past'):
+                with self.assertRaisesRegex(SafetyError,'deadline'):
+                    worker.approve_resume(run,'operator','review',worker.review_token(run))
+                with ledger._connect() as db:
+                    self.assertEqual((0,),db.execute('SELECT enabled FROM runs WHERE run_id=?',(run,)).fetchone())
+            worker.approve_resume('future','operator','review',worker.review_token('future'))
+            with ledger._connect() as db:
+                self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='future'").fetchone())
