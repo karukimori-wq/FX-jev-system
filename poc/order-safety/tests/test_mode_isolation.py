@@ -18,8 +18,8 @@ class ModeIsolationTests(unittest.TestCase):
         self.tmp = TemporaryDirectory()
         self.ledger = SQLiteLedger(Path(self.tmp.name)/'ledger.db')
         self.ledger.set_logic_limit('L',100)
-        self.ledger.add_run(Run('live','L',Mode.LIVE,100))
-        self.ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
+        self.ledger.add_run(Run('live','L',Mode.LIVE,100), require_deadline=False)
+        self.ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100, require_deadline=False)
 
     def tearDown(self):
         self.tmp.cleanup()

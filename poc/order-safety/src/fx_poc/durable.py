@@ -718,13 +718,17 @@ class SQLiteLedger:
                 raise SafetyError("unknown run")
             return Mode(row[0])
 
-    def add_run(self, run: Run, *, demo_quantity_limit: int | None = None) -> None:
+    def add_run(self, run: Run, *, demo_quantity_limit: int | None = None, require_deadline: bool = True) -> None:
         self._quantity(run.max_quantity)
         deadline = None
+        if require_deadline and run.ends_at is None:
+            raise SafetyError("run deadline required")
         if run.ends_at is not None:
             from datetime import datetime, timezone
             if not isinstance(run.ends_at, datetime) or run.ends_at.tzinfo is None or run.ends_at.utcoffset() is None:
                 raise SafetyError("timezone-aware end time required")
+            if require_deadline and run.ends_at <= datetime.now(timezone.utc):
+                raise SafetyError("run deadline expired")
             deadline = run.ends_at.astimezone(timezone.utc).isoformat()
         if run.mode == Mode.DEMO:
             if run.max_quantity != 0:

@@ -26,7 +26,7 @@ class LogicLimitTests(unittest.TestCase):
         self.ledger = SQLiteLedger(self.path)
         self.ledger.set_logic_limit('L', 100)
         for run in ('old', 'new'):
-            self.ledger.add_run(Run(run, 'L', Mode.LIVE, 100))
+            self.ledger.add_run(Run(run, 'L', Mode.LIVE, 100), require_deadline=False)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -80,7 +80,7 @@ class LogicLimitTests(unittest.TestCase):
             self.ledger.reserve(self.intent('large', qty=101))
 
     def test_missing_limit_fails_closed_and_zero_blocks_live(self):
-        self.ledger.add_run(Run('other', 'other', Mode.LIVE, 100))
+        self.ledger.add_run(Run('other', 'other', Mode.LIVE, 100), require_deadline=False)
         with self.assertRaisesRegex(SafetyError, 'not configured'):
             self.ledger.reserve(self.intent('missing', 'other'))
         self.ledger.set_logic_limit('L', 0)
@@ -101,7 +101,7 @@ class LogicLimitTests(unittest.TestCase):
         self.assertEqual(ledger.live_exposure('L'), 50)
 
     def test_demo_open_close_and_reopen_never_reach_external_broker(self):
-        self.ledger.add_run(Run('demo', 'L', Mode.DEMO, 0), demo_quantity_limit=200)
+        self.ledger.add_run(Run('demo', 'L', Mode.DEMO, 0), demo_quantity_limit=200, require_deadline=False)
         self.ledger.reserve(self.intent('live', qty=100))
         engine = DurableEngine(self.ledger, ForbiddenBroker())
         order = engine.submit_intent(self.intent('demo-order', 'demo', 200))
@@ -118,15 +118,15 @@ class LogicLimitTests(unittest.TestCase):
             ledger.reserve_close('steal', 'new', 'fill-demo-fill', 1)
 
     def test_demo_limit_and_settings_are_separate(self):
-        self.ledger.add_run(Run('demo', 'L', Mode.DEMO, 0), demo_quantity_limit=50)
+        self.ledger.add_run(Run('demo', 'L', Mode.DEMO, 0), demo_quantity_limit=50, require_deadline=False)
         self.ledger.set_logic_limit('L', 0)
         self.ledger.reserve(self.intent('demo', 'demo', 50))
         with self.assertRaises(SafetyError):
             self.ledger.reserve(self.intent('over', 'demo'))
         with self.assertRaises(SafetyError):
-            self.ledger.add_run(Run('bad-demo', 'L', Mode.DEMO, 0))
+            self.ledger.add_run(Run('bad-demo', 'L', Mode.DEMO, 0), require_deadline=False)
         with self.assertRaises(SafetyError):
-            self.ledger.add_run(Run('bad-live', 'L', Mode.LIVE, 0))
+            self.ledger.add_run(Run('bad-live', 'L', Mode.LIVE, 0), require_deadline=False)
 
     def test_invalid_limits_and_quantities_are_rejected(self):
         for value in (-1, 1000001, True, 1.5):
@@ -183,7 +183,7 @@ class LogicLimitTests(unittest.TestCase):
         worker = MockWorker(self.ledger, ForbiddenBroker(), require_deadline=False)
         token = worker.review_token('new')
         self.ledger.set_logic_limit('other-logic', 10)
-        self.ledger.add_run(Run('unrelated', 'other-logic', Mode.LIVE, 10))
+        self.ledger.add_run(Run('unrelated', 'other-logic', Mode.LIVE, 10), require_deadline=False)
         self.ledger.reserve(self.intent('unrelated-order', 'unrelated', 1))
         self.assertEqual(token, worker.review_token('new'))
         worker.approve_resume('new', 'tester', 'review', token)

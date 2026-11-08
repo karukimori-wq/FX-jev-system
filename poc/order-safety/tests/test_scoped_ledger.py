@@ -11,7 +11,7 @@ class ScopedLedgerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/'db'; ledger=SQLiteLedger(path); ledger.set_logic_limit('L',100)
             for mode in Mode:
-                ledger.add_run(Run(mode.value,'L',mode,0 if mode==Mode.DEMO else 100),**({'demo_quantity_limit':100} if mode==Mode.DEMO else {}))
+                ledger.add_run(Run(mode.value,'L',mode,0 if mode==Mode.DEMO else 100),**({'demo_quantity_limit':100} if mode==Mode.DEMO else {}), require_deadline=False)
                 bound=RunLedger(ledger,mode.value)
                 self.assertTrue(bound.reserve('d','USD_JPY',Side.BUY,10)[1])
                 self.assertTrue(bound.ingest_entry_fill('d','e',10))
@@ -25,7 +25,7 @@ class ScopedLedgerTests(unittest.TestCase):
     def test_foreign_position_and_missing_order_rejected(self):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
-            for run in ('a','b'): ledger.add_run(Run(run,'L',Mode.LIVE,100))
+            for run in ('a','b'): ledger.add_run(Run(run,'L',Mode.LIVE,100), require_deadline=False)
             a,b=RunLedger(ledger,'a'),RunLedger(ledger,'b')
             a.reserve('d','USD_JPY',Side.BUY,10);a.ingest_entry_fill('d','e',10)
             with self.assertRaises(SafetyError): b.reserve_close('c',a.filled_position('e'),1)
@@ -44,7 +44,7 @@ class ScopedLedgerTests(unittest.TestCase):
             path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100);broker=Broker()
             for mode in Mode:
                 run=mode.value
-                ledger.add_run(Run(run,'L',mode,0 if mode==Mode.DEMO else 100),**({'demo_quantity_limit':100} if mode==Mode.DEMO else {}))
+                ledger.add_run(Run(run,'L',mode,0 if mode==Mode.DEMO else 100),**({'demo_quantity_limit':100} if mode==Mode.DEMO else {}), require_deadline=False)
                 engine=RunEngine(ledger,broker,run)
                 engine.submit_entry('same','USD_JPY',Side.BUY,10)
                 scope=engine.scope;scope.ingest_entry_fill('same','fill',10)
@@ -61,7 +61,7 @@ class ScopedLedgerTests(unittest.TestCase):
             def submit_close(self,*args): raise AssertionError('foreign close sent')
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
-            for run in ('a','b'):ledger.add_run(Run(run,'L',Mode.LIVE,100))
+            for run in ('a','b'):ledger.add_run(Run(run,'L',Mode.LIVE,100), require_deadline=False)
             ledger.seed_position('foreign','a',10)
             with self.assertRaises(SafetyError):RunEngine(ledger,Forbidden(),'b').submit_close('c','foreign',1)
             with ledger._connect() as db:self.assertEqual(0,db.execute('SELECT COUNT(*) FROM closes').fetchone()[0])
@@ -76,7 +76,7 @@ class ScopedLedgerTests(unittest.TestCase):
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100);broker=Broker()
             engines={}
             for run,mode in [('a',Mode.LIVE),('b',Mode.LIVE),('demo',Mode.DEMO)]:
-                ledger.add_run(Run(run,'L',mode,0 if mode==Mode.DEMO else 100),**({'demo_quantity_limit':100} if mode==Mode.DEMO else {}))
+                ledger.add_run(Run(run,'L',mode,0 if mode==Mode.DEMO else 100),**({'demo_quantity_limit':100} if mode==Mode.DEMO else {}), require_deadline=False)
                 engine=RunEngine(ledger,broker,run);engine.submit_entry('same','USD_JPY',Side.BUY,10);engine.stop();engines[run]=engine
             self.assertEqual(1,engines['a'].process_cancellations())
             self.assertEqual(['a'],broker.canceled)
@@ -95,7 +95,7 @@ class ScopedLedgerTests(unittest.TestCase):
             def cancel_open(self,order): self.calls+=1;raise TimeoutError()
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('a','L',Mode.LIVE,100));broker=Broker();engine=RunEngine(ledger,broker,'a')
+            ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False);broker=Broker();engine=RunEngine(ledger,broker,'a')
             engine.submit_entry('d','USD_JPY',Side.BUY,10);engine.stop()
             self.assertEqual(1,engine.process_cancellations())
             self.assertEqual(0,RunEngine(SQLiteLedger(path),broker,'a').process_cancellations())
@@ -105,7 +105,7 @@ class ScopedLedgerTests(unittest.TestCase):
     def test_scoped_terminal_evidence_keeps_foreign_ids_and_releases_only_owner(self):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
-            for run in ('a','b'):ledger.add_run(Run(run,'L',Mode.LIVE,100))
+            for run in ('a','b'):ledger.add_run(Run(run,'L',Mode.LIVE,100), require_deadline=False)
             a,b=RunLedger(ledger,'a'),RunLedger(ledger,'b')
             for scope in (a,b):scope.reserve('d','USD_JPY',Side.BUY,10)
             evidence=dict(decision_id=a.identifier('decision','d'),run_id='a',quantity=10,filled=0,state='CANCELED',external_id='ea')
@@ -119,7 +119,7 @@ class ScopedLedgerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
             for run in ('a','b'):
-                ledger.add_run(Run(run,'L',Mode.LIVE,100));ledger.seed_position('p-'+run,run,10)
+                ledger.add_run(Run(run,'L',Mode.LIVE,100), require_deadline=False);ledger.seed_position('p-'+run,run,10)
                 RunLedger(ledger,run).reserve_close('c','p-'+run,10)
             a,b=RunLedger(ledger,'a'),RunLedger(ledger,'b')
             evidence=dict(close_id=a.identifier('close','c'),run_id='a',position_id='p-a',quantity=10,filled=0,state='CANCELED',external_id='ca')
@@ -129,7 +129,7 @@ class ScopedLedgerTests(unittest.TestCase):
 
     def test_full_close_fill_finalizes_pending_cancel_atomically(self):
         with TemporaryDirectory() as tmp:
-            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False);ledger.seed_position('p','a',10)
             ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.transition_close('c','CANCEL_PENDING')
             with ledger._connect() as db:
                 db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
@@ -144,7 +144,7 @@ class ScopedLedgerTests(unittest.TestCase):
 
     def test_cancel_ack_cannot_overwrite_full_fill_during_send(self):
         with TemporaryDirectory() as tmp:
-            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False);ledger.seed_position('p','a',10)
             ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.attach_close_external_id('c','ext');ledger.transition_close('c','CANCEL_PENDING')
             with ledger._connect() as db:
                 db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
@@ -158,7 +158,7 @@ class ScopedLedgerTests(unittest.TestCase):
         import sqlite3
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/'db';ledger=SQLiteLedger(path)
-            ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False);ledger.seed_position('p','a',10)
             ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.transition_close('c','CANCEL_PENDING')
             with ledger._connect() as db:
                 db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
@@ -180,7 +180,7 @@ class ScopedLedgerTests(unittest.TestCase):
 
     def test_partial_close_fill_keeps_cancel_uncertainty_until_full(self):
         with TemporaryDirectory() as tmp:
-            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100));ledger.seed_position('p','a',10)
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False);ledger.seed_position('p','a',10)
             ledger.reserve_close('c','a','p',10);ledger.transition_close('c','OPEN');ledger.transition_close('c','CANCEL_PENDING')
             with ledger._connect() as db:
                 db.execute("CREATE TABLE close_cancel_requests(close_id TEXT PRIMARY KEY,status TEXT)")
@@ -203,7 +203,7 @@ class ScopedLedgerTests(unittest.TestCase):
             with ledger._connect() as db:db.execute('CREATE TABLE close_conflicts(position_id TEXT PRIMARY KEY,pending_quantity INTEGER,remaining_quantity INTEGER)')
             engines={}
             for run in ('a','b'):
-                ledger.add_run(Run(run,'L',Mode.LIVE,100));ledger.seed_position('p-'+run,run,10)
+                ledger.add_run(Run(run,'L',Mode.LIVE,100), require_deadline=False);ledger.seed_position('p-'+run,run,10)
                 engine=RunEngine(ledger,broker,run);engines[run]=engine
                 engine.scope.reserve_close('c','p-'+run,10)
                 close=engine.scope.identifier('close','c');ledger.transition_close(close,'OPEN');ledger.attach_close_external_id(close,'ext-'+run)
@@ -219,7 +219,7 @@ class ScopedLedgerTests(unittest.TestCase):
     def test_close_cancel_processor_handles_absent_queue(self):
         from fx_poc.scoped_ledger import RunEngine
         with TemporaryDirectory() as tmp:
-            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100))
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False)
             self.assertEqual(0,RunEngine(ledger,object(),'a').process_close_cancellations())
 
     def test_worker_scoped_entry_requires_startup_review(self):
@@ -228,7 +228,7 @@ class ScopedLedgerTests(unittest.TestCase):
             def __init__(self):self.calls=0
             def submit_open(self,order):self.calls+=1;return 'ext'
         with TemporaryDirectory() as tmp:
-            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100);ledger.add_run(Run('a','L',Mode.LIVE,100));broker=Broker()
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100);ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False);broker=Broker()
             worker=MockWorker(ledger,broker,mode=Mode.LIVE, require_deadline=False);engine=worker.run_engine('a')
             with self.assertRaises(SafetyError):engine.submit_entry('d','USD_JPY',Side.BUY,1)
             self.assertEqual(0,broker.calls)
@@ -240,7 +240,7 @@ class ScopedLedgerTests(unittest.TestCase):
     def test_mode_worker_refuses_other_mode_run_engine(self):
         from fx_poc.worker import MockWorker
         with TemporaryDirectory() as tmp:
-            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100, require_deadline=False)
             worker=MockWorker(ledger,object(),mode=Mode.LIVE, require_deadline=False)
             with self.assertRaisesRegex(SafetyError,'worker mode mismatch'):worker.run_engine('demo')
 
@@ -248,7 +248,7 @@ class ScopedLedgerTests(unittest.TestCase):
         from datetime import datetime,timezone
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)))
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)), require_deadline=False)
             ledger=SQLiteLedger(path)
             with self.assertRaisesRegex(SafetyError,'deadline expired'):RunLedger(ledger,'a').reserve('d','USD_JPY',Side.BUY,1)
             ledger.seed_position('p','a',10)
@@ -258,7 +258,7 @@ class ScopedLedgerTests(unittest.TestCase):
         from datetime import datetime,timezone
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)), require_deadline=False)
             scope=RunLedger(ledger,'a');scope.reserve('d','USD_JPY',Side.BUY,10)
             with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
             self.assertEqual('CANCELED',ledger.dispatch_open(scope.identifier('decision','d'),object()).state)
@@ -268,7 +268,7 @@ class ScopedLedgerTests(unittest.TestCase):
         from datetime import datetime
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db')
-            with self.assertRaisesRegex(SafetyError,'timezone-aware'):ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1)))
+            with self.assertRaisesRegex(SafetyError,'timezone-aware'):ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1)), require_deadline=False)
 
     def test_deadline_stop_queues_sent_entries_once_preserves_position(self):
         from datetime import datetime,timezone
@@ -277,7 +277,7 @@ class ScopedLedgerTests(unittest.TestCase):
             def submit_open(self,order):return 'ext'
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)), require_deadline=False)
             engine=RunEngine(ledger,Broker(),'a');engine.submit_entry('d','USD_JPY',Side.BUY,10)
             engine.scope.ingest_entry_fill('d','e',4)
             with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
@@ -293,7 +293,7 @@ class ScopedLedgerTests(unittest.TestCase):
         from datetime import datetime,timezone
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)), require_deadline=False)
             scope=RunLedger(ledger,'a');scope.reserve('d','USD_JPY',Side.BUY,10)
             self.assertFalse(ledger.expire_run('a'))
             with ledger._connect() as db:db.execute("UPDATE run_deadlines SET ends_at='2000-01-01T00:00:00+00:00'")
@@ -310,7 +310,7 @@ class ScopedLedgerTests(unittest.TestCase):
             def cancel_open(self,order):self.calls+=1
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            ledger.add_run(Run('a','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)), require_deadline=False)
             broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE, require_deadline=False)
             worker.approve_resume('a','operator','review',worker.review_token('a'))
             worker.run_engine('a').submit_entry('d','USD_JPY',Side.BUY,10)
@@ -325,7 +325,7 @@ class ScopedLedgerTests(unittest.TestCase):
         from fx_poc.worker import MockWorker
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db')
-            ledger.add_run(Run('demo','L',Mode.DEMO,0,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)),demo_quantity_limit=100)
+            ledger.add_run(Run('demo','L',Mode.DEMO,0,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)),demo_quantity_limit=100, require_deadline=False)
             worker=MockWorker(ledger,object(),mode=Mode.LIVE, require_deadline=False)
             self.assertEqual([],worker.maintenance_tick())
             with ledger._connect() as db:self.assertEqual((1,),db.execute("SELECT enabled FROM runs WHERE run_id='demo'").fetchone())
@@ -338,8 +338,8 @@ class ScopedLedgerTests(unittest.TestCase):
             def cancel_open(self,order):self.calls+=1
         with TemporaryDirectory() as tmp:
             path=Path(tmp)/'db';ledger=SQLiteLedger(path);ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('a','L',Mode.LIVE,100))
-            ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
+            ledger.add_run(Run('a','L',Mode.LIVE,100), require_deadline=False)
+            ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100, require_deadline=False)
             broker=Broker();worker=MockWorker(ledger,broker,mode=Mode.LIVE, require_deadline=False)
             worker.approve_resume('a','operator','legacy review',worker.review_token('a'))
             engine=worker.run_engine('a');engine.submit_entry('sent','USD_JPY',Side.BUY,10)
@@ -364,9 +364,9 @@ class ScopedLedgerTests(unittest.TestCase):
         from fx_poc.worker import MockWorker
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
-            ledger.add_run(Run('missing','L',Mode.LIVE,100))
-            ledger.add_run(Run('past','L',Mode.LIVE,100,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)))
-            ledger.add_run(Run('future','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)))
+            ledger.add_run(Run('missing','L',Mode.LIVE,100), require_deadline=False)
+            ledger.add_run(Run('past','L',Mode.LIVE,100,ends_at=datetime(2000,1,1,tzinfo=timezone.utc)), require_deadline=False)
+            ledger.add_run(Run('future','L',Mode.LIVE,100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)), require_deadline=False)
             worker=MockWorker(ledger,object(),mode=Mode.LIVE)
             for run in ('missing','past'):
                 with self.assertRaisesRegex(SafetyError,'deadline'):
@@ -382,8 +382,21 @@ class ScopedLedgerTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
             for run,deadline in [('missing',None),('past',datetime(2000,1,1,tzinfo=timezone.utc)),('future',datetime(2100,1,1,tzinfo=timezone.utc))]:
-                ledger.add_run(Run(run,'L',Mode.LIVE,100,enabled=False,ends_at=deadline))
+                ledger.add_run(Run(run,'L',Mode.LIVE,100,enabled=False,ends_at=deadline), require_deadline=False)
             for run in ('missing','past'):
                 with self.assertRaisesRegex(SafetyError,'deadline'):ledger.approve_mock_resume(run,'operator','review')
                 with ledger._connect() as db:self.assertEqual((0,),db.execute('SELECT enabled FROM runs WHERE run_id=?',(run,)).fetchone())
             ledger.approve_mock_resume('future','operator','review')
+
+    def test_run_creation_requires_future_deadline_without_partial_insert(self):
+        from datetime import datetime,timezone
+        with TemporaryDirectory() as tmp:
+            ledger=SQLiteLedger(Path(tmp)/'db');ledger.set_logic_limit('L',100)
+            for mode in Mode:
+                for deadline in (None,datetime(2000,1,1,tzinfo=timezone.utc)):
+                    with self.assertRaisesRegex(SafetyError,'deadline'):
+                        ledger.add_run(Run('invalid','L',mode,0 if mode==Mode.DEMO else 100,ends_at=deadline),demo_quantity_limit=100)
+                with ledger._connect() as db:
+                    self.assertEqual(0,db.execute("SELECT COUNT(*) FROM runs WHERE run_id='invalid'").fetchone()[0])
+                ledger.add_run(Run(mode.value,'L',mode,0 if mode==Mode.DEMO else 100,ends_at=datetime(2100,1,1,tzinfo=timezone.utc)),**({'demo_quantity_limit':100} if mode==Mode.DEMO else {}))
+            with ledger._connect() as db:self.assertEqual(2,db.execute('SELECT COUNT(*) FROM run_deadlines').fetchone()[0])

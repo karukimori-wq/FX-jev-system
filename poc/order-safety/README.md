@@ -305,3 +305,11 @@ predicate. Both require a future deadline by default. Explicit
 `require_deadline=False` remains a mock compatibility escape hatch; direct run
 creation and other low-level APIs are not production authorization boundaries.
 112 mock tests pass; evidence/tests-shared-deadline.txt records verification.
+
+## Run creation deadline policy
+
+SQLiteLedger.add_run now requires a future, timezone-aware deadline by default
+for both live and demo runs. Invalid deadlines fail before run data is inserted.
+Explicit require_deadline=False supports legacy fixture/import workflows and
+permits historical deadlines. Existing database initialization is unchanged.
+The old in-memory Engine remains a reference implementation. 113 tests pass.

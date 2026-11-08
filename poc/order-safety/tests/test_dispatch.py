@@ -31,7 +31,7 @@ class DispatchTests(unittest.TestCase):
         self.path = Path(self.tmp.name)/'ledger.db'
         self.ledger = SQLiteLedger(self.path)
         self.ledger.set_logic_limit('L',100)
-        self.ledger.add_run(Run('r','L',Mode.LIVE,100))
+        self.ledger.add_run(Run('r','L',Mode.LIVE,100), require_deadline=False)
         self.broker = Broker()
         self.engine = DurableEngine(self.ledger,self.broker)
         self.intent = Intent('d','r','USD_JPY',Side.BUY,100)
@@ -47,7 +47,7 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(self.ledger.live_exposure('L'),0)
 
     def test_lower_cap_discards_unsent_and_excludes_demo(self):
-        self.ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100)
+        self.ledger.add_run(Run('demo','L',Mode.DEMO,0),demo_quantity_limit=100, require_deadline=False)
         self.ledger.reserve(Intent('demo','demo','USD_JPY',Side.BUY,100))
         self.ledger.reserve(self.intent)
         self.ledger.set_logic_limit('L',50)
@@ -232,7 +232,7 @@ class DispatchTests(unittest.TestCase):
         self.assertFalse(self.ledger.ingest_close_fill('c','late-close',20))
         self.assertFalse(SQLiteLedger(self.path).ingest_close_fill('c','late-close',20))
         self.assertEqual(self.ledger.live_exposure('L'),100)
-        self.ledger.add_run(Run('new','L',Mode.LIVE,100))
+        self.ledger.add_run(Run('new','L',Mode.LIVE,100), require_deadline=False)
         with self.assertRaises(SafetyError):
             self.ledger.reserve(Intent('blocked','new','USD_JPY',Side.BUY,1))
         with self.assertRaises(SafetyError):

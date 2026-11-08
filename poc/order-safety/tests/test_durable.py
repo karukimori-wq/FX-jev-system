@@ -28,7 +28,7 @@ class DurableAcceptanceTests(unittest.TestCase):
         self.db_path = Path(self.tmp.name) / "ledger.sqlite3"
         self.ledger = SQLiteLedger(self.db_path)
         self.ledger.set_logic_limit("logic-A", 10_000)
-        self.ledger.add_run(Run("run-A", "logic-A", Mode.LIVE, 10_000))
+        self.ledger.add_run(Run("run-A", "logic-A", Mode.LIVE, 10_000), require_deadline=False)
         self.broker = CountingBroker()
 
     def tearDown(self):
